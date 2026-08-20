@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "daemon": {
+    "mcp": {
+      "enabled": true,
+      "injectIntoAgents": true
+    }
+  },
+  "agents": {
+    "providers": {
+      "claude-supervisor": {
+        "extends": "claude",
+        "label": "Claude Supervisor",
+        "description": "Observation-only governance plane. Never edits product code.",
+        "command": [
+          "claude",
+          "--settings",
+          "<HOME>/.claude/paseo-team/settings.claude-team.json"
+        ],
+        "env": {
+          "PASEO_CLAUDE_ROLE": "supervisor",
+          "PASEO_TEAM_STATE_DIR": "<HOME>/.claude/paseo-team/state",
+          "PASEO_TEAM_SCRIPTS_DIR": "<HOME>/.claude/paseo-team/scripts"
+        },
+        "disallowedTools": [
+          "Agent",
+          "Task"
+        ]
+      },
+      "claude-lead": {
+        "extends": "claude",
+        "label": "Claude Lead",
+        "description": "Project Lead. The only role that creates and manages Paseo child agents.",
+        "command": [
+          "claude",
+          "--settings",
+          "<HOME>/.claude/paseo-team/settings.claude-team.json"
+        ],
+        "env": {
+          "PASEO_CLAUDE_ROLE": "lead",
+          "PASEO_TEAM_STATE_DIR": "<HOME>/.claude/paseo-team/state",
+          "PASEO_TEAM_SCRIPTS_DIR": "<HOME>/.claude/paseo-team/scripts"
+        },
+        "disallowedTools": [
+          "Agent",
+          "Task"
+        ]
+      },
+      "claude-peer": {
+        "extends": "claude",
+        "label": "Claude Peer",
+        "description": "Bounded worker. Authority comes only from the current V3 task brief.",
+        "command": [
+          "claude",
+          "--settings",
+          "<HOME>/.claude/paseo-team/settings.claude-team.json"
+        ],
+        "env": {
+          "PASEO_CLAUDE_ROLE": "peer",
+          "PASEO_TEAM_STATE_DIR": "<HOME>/.claude/paseo-team/state",
+          "PASEO_TEAM_SCRIPTS_DIR": "<HOME>/.claude/paseo-team/scripts"
+        },
+        "disallowedTools": [
+          "Agent",
+          "Task"
+        ]
+      }
+    }
+  }
+}

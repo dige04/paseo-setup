@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>governance.graph</title>
+    <link rel="stylesheet" href="https://esm.sh/@xyflow/react@12/dist/style.css" />
+    <style>
+      :root {
+        --bg: #0a0a0b;
+        --panel: #131316;
+        --line: #26262b;
+        --text: #e8e8ea;
+        --muted: #8a8a94;
+        --accent: #6366f1;
+        --ok: #22c55e;
+        --warn: #eab308;
+        --dim: #52525b;
+      }
+      * { box-sizing: border-box; }
+      html, body, #root { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.5 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .shell { display: flex; flex-direction: column; height: 100%; }
+      .titlebar {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 14px; border-bottom: 1px solid var(--line);
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+      .crumbs {
+        display: flex; align-items: center; gap: 8px;
+        padding: 9px 14px; border-bottom: 1px solid var(--line);
+        color: var(--muted); font-size: 12px;
+      }
+      .crumbs b { color: var(--text); font-weight: 500; }
+      .canvas { flex: 1; min-height: 0; position: relative; }
+      .statusbar {
+        display: flex; justify-content: space-between; gap: 16px;
+        padding: 8px 14px; border-top: 1px solid var(--line);
+        color: var(--muted); font-size: 12px;
+      }
+      .statusbar .right { display: flex; align-items: center; gap: 6px; }
+      /* Keep the three floating chrome elements out of each other's way:
+         minimap sits above the pill, controls clear the right edge. */
+      .react-flow__controls { right: 16px !important; bottom: 16px !important; }
+      .react-flow__minimap { left: 14px !important; bottom: 62px !important; }
+      .pill {
+        position: absolute; left: 14px; bottom: 14px; z-index: 6;
+        display: flex; align-items: center; gap: 8px;
+        background: var(--panel); border: 1px solid var(--line);
+        border-radius: 8px; padding: 8px 13px; font-size: 12px; color: var(--muted);
+      }
+      .pill b { color: var(--text); font-weight: 500; }
+      .node.clickable { cursor: pointer; }
+      .node.clickable:hover { border-color: #3f3f46; }
+      .opened { color: var(--ok); }
+      .legend { display: flex; gap: 14px; align-items: center; }
+      .legend-item { display: inline-flex; align-items: center; gap: 5px; }
+      .legend-item i { width: 13px; height: 2px; border-radius: 1px; display: inline-block; }
+
+      .node {
+        min-width: 214px; padding: 11px 13px;
+        background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+      }
+      .node.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+      .node .kind {
+        font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase;
+        color: var(--muted); margin-bottom: 3px;
+      }
+      .node .title {
+        font-weight: 500; font-size: 13.5px; display: flex;
+        align-items: center; justify-content: space-between; gap: 8px;
+      }
+      .node .name {
+        color: var(--muted); font-size: 11.5px; margin-top: 1px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px;
+      }
+      .node .detail { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+      .node.unknown { border-style: dashed; opacity: 0.75; }
+      .pip { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+      .pip.ok { background: var(--ok); }
+      .pip.warn { background: var(--warn); }
+      .pip.muted { background: var(--dim); }
+      .react-flow__edge-text { fill: var(--muted); font-size: 10px; }
+      .react-flow__handle { background: var(--dim); border: none; width: 5px; height: 5px; }
+      .banner {
+        position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+        background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+        padding: 6px 16px; color: var(--muted); font-size: 12px; z-index: 5;
+      }
+      .banner b { color: var(--text); font-weight: 500; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import React, { useCallback, useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1";
+      import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+      import {
+        ReactFlow, Background, Controls, MiniMap, Handle, Position, useNodesState, useEdgesState,
+      } from "https://esm.sh/@xyflow/react@12.3.5?deps=react@18.3.1,react-dom@18.3.1";
+
+      const h = React.createElement;
+
+      const STATUS_TONE = { running: "ok", active: "ok", idle: "muted", waiting: "warn", unknown: "muted" };
+      const EDGE_STYLE = {
+        governs:     { stroke: "#71717a", dash: null,    label: true  },
+        bounds:      { stroke: "#3f3f46", dash: "2 5",   label: false },
+        delegates:   { stroke: "#6366f1", dash: null,    label: true  },
+        checkpoints: { stroke: "#3f3f46", dash: "5 4",   label: false },
+      };
+      const LEGEND = [
+        ["governs", "#71717a", "control plane / supervisor over a seat"],
+        ["bounds", "#3f3f46", "run policy over every governed agent"],
+        ["delegates", "#6366f1", "real ParentAgentId, never inferred"],
+        ["checkpoints", "#3f3f46", "seat writes into durable truth"],
+      ];
+
+      function Shell({ data, selected, children, clickable, title }) {
+        return h("div", {
+          className: `node ${data.role === "unknown" ? "unknown" : ""} ${selected ? "sel" : ""} ${clickable ? "clickable" : ""}`,
+          title,
+        },
+          h(Handle, { type: "target", position: Position.Left }),
+          children,
+          h(Handle, { type: "source", position: Position.Right }),
+        );
+      }
+
+      function AgentNode({ data, selected }) {
+        const tone = data.stale ? "warn" : (STATUS_TONE[data.status] ?? "muted");
+        return h(Shell, { data, selected, clickable: true, title: "click to open this session in Paseo" },
+          h("div", { className: "kind" }, data.kind),
+          h("div", { className: "title" },
+            h("span", null, data.title),
+            h("span", { className: `pip ${tone}` }),
+          ),
+          data.name ? h("div", { className: "name", title: data.name }, data.name) : null,
+          h("div", { className: "detail" }, data.detail),
+          data.pending > 0
+            ? h("div", { className: "detail", style: { color: "var(--warn)" } }, `${data.pending} pending permission(s)`)
+            : null,
+        );
+      }
+
+      function GovernanceNode({ data, selected }) {
+        return h(Shell, { data, selected },
+          h("div", { className: "kind" }, data.kind),
+          h("div", { className: "title" },
+            h("span", null, data.title),
+            h("span", { className: `pip ${data.tone ?? "muted"}` }),
+          ),
+          h("div", { className: "detail", title: data.detail }, data.detail),
+        );
+      }
+
+      const nodeTypes = { agent: AgentNode, governance: GovernanceNode };
+
+      function decorate(graph) {
+        const edges = (graph.edges ?? []).map((e) => {
+          const style = EDGE_STYLE[e.data?.kind] ?? EDGE_STYLE.governs;
+          return {
+            ...e,
+            type: "smoothstep",
+            label: style.label ? e.label : undefined,
+            animated: e.data?.kind === "delegates",
+            style: { stroke: style.stroke, strokeWidth: 1.2, strokeDasharray: style.dash ?? undefined },
+          };
+        });
+        return { nodes: graph.nodes ?? [], edges };
+      }
+
+      function App() {
+        const [graph, setGraph] = useState(null);
+        const [error, setError] = useState(null);
+        const [nodes, setNodes, onNodesChange] = useNodesState([]);
+        const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+        const [revision, setRevision] = useState(0);
+
+        const inFlight = React.useRef(false);
+        const load = useCallback(async () => {
+          if (inFlight.current) return; // a slow fan-out must not stack polls
+          inFlight.current = true;
+          try {
+            const res = await fetch("graph.json", { cache: "no-store" });
+            if (!res.ok) throw new Error(`graph.json: HTTP ${res.status}`);
+            const next = await res.json();
+            const { nodes: n, edges: e } = decorate(next);
+            setGraph(next); setNodes(n); setEdges(e); setError(null);
+            setRevision((r) => r + 1);
+          } catch (err) {
+            setError(String(err?.message ?? err));
+          } finally {
+            inFlight.current = false;
+          }
+        }, [setNodes, setEdges]);
+
+        useEffect(() => {
+          load();
+          const timer = setInterval(load, 5000);
+          return () => clearInterval(timer);
+        }, [load]);
+
+        const [selected, setSelected] = useState(null);
+        const [opened, setOpened] = useState(null);
+
+        // The graph is a way into the sessions, not just a picture of them.
+        const onNodeClick = useCallback(async (_event, node) => {
+          setSelected(node);
+          if (node.type !== "agent") return;
+          try {
+            const res = await fetch(`open?agentId=${encodeURIComponent(node.id)}`);
+            const body = await res.json();
+            setOpened(body.ok ? `opened ${node.data.title}` : `could not open: ${body.error}`);
+          } catch (err) {
+            setOpened(`could not open: ${String(err?.message ?? err)}`);
+          }
+          setTimeout(() => setOpened(null), 4000);
+        }, []);
+
+        const counts = graph?.meta?.counts ?? {};
+        const scope = graph?.meta?.scope ?? "—";
+        const scopeLabel = scope === "all" ? "all workspaces" : String(scope).split("/").pop();
+        const daemon = graph?.meta?.daemon?.status ?? "unknown";
+
+        return h("div", { className: "shell" },
+          h("div", { className: "titlebar" },
+            h("span", { className: "dot" }),
+            h("span", null, "governance.graph"),
+          ),
+          h("div", { className: "crumbs" },
+            h("b", null, scopeLabel),
+            h("span", null, "›"),
+            h("span", null, graph?.meta?.projected ? "projected topology" : "live topology"),
+            h("span", null, "·"),
+            h("span", null, `${counts.leads ?? 0} leads · ${counts.peers ?? 0} peers · ${counts.supervisors ?? 0} supervisors`),
+          ),
+          h("div", { className: "canvas" },
+            graph?.meta?.projected
+              ? h("div", { className: "banner" }, h("b", null, "PROJECTED"), " · ", graph.meta.note ?? "not live Paseo state")
+              : error
+              ? h("div", { className: "banner" }, h("b", null, "cannot load graph.json"), " — ", error)
+              : (counts.unknown ? h("div", { className: "banner" },
+                  h("b", null, `${counts.unknown} agent(s) with no declared role`),
+                  " · shown dashed · edges drawn only from real parentage, never from a guess") : null),
+            h(ReactFlow, {
+              nodes, edges, onNodesChange, onEdgesChange, nodeTypes, onNodeClick,
+              fitView: true, minZoom: 0.2, proOptions: { hideAttribution: false },
+              defaultEdgeOptions: { type: "smoothstep" },
+            },
+              h(Background, { color: "#1c1c20", gap: 22 }),
+              h(Controls, { showInteractive: false, position: "bottom-right" }),
+              h(MiniMap, {
+                position: "bottom-left", pannable: true, zoomable: true,
+                style: { background: "#0f0f11", border: "1px solid #26262b" },
+                nodeColor: (n) => (n.data?.role === "unknown" ? "#3f3f46" : n.type === "agent" ? "#4f46e5" : "#27272a"),
+                maskColor: "rgba(10,10,11,0.75)",
+              }),
+            ),
+            h("div", { className: "pill" },
+              h("span", { className: `pip ${graph?.meta?.projected ? "muted" : "ok"}` }),
+              h("span", null, graph?.meta?.projected ? "Projected topology" : "Live topology"),
+              h("span", null, "·"),
+              h("span", null, `revision ${revision}`),
+              selected ? h("span", null, "·") : null,
+              selected ? h("span", null, "selected ", h("b", null, selected.data.title)) : null,
+              opened ? h("span", { className: "opened" }, "· ", opened) : null,
+            ),
+          ),
+          h("div", { className: "statusbar" },
+            h("span", null, `${counts.tasks ?? 0} tasks · ${counts.active ?? 0} active runs · ${edges.length} edges`),
+            h("div", { className: "legend" },
+              ...LEGEND.map(([name, color, title]) =>
+                h("span", { key: name, className: "legend-item", title },
+                  h("i", { style: { background: color } }),
+                  name,
+                ),
+              ),
+            ),
+            h("span", null, graph?.meta?.partial ? "partial — some agents were not inspected" : "observation-only"),
+            h("div", { className: "right" },
+              h("span", { className: `pip ${daemon === "running" ? "ok" : "warn"}` }),
+              h("span", null, `daemon ${daemon} · revision ${revision}`),
+            ),
+          ),
+        );
+      }
+
+      createRoot(document.getElementById("root")).render(h(App));
+    </script>
+  </body>
+</html>

@@ -1,0 +1,13 @@
+# Dev-only, machine-specific paths (points at global pi install)
+tsconfig.json
+
+node_modules/
+*.log
+.DS_Store
+
+# Host-local routing config and any credential-bearing local file. Real copies
+# live in ~/.paseo-pi-team/ — these patterns only guard against accidental
+# in-repo copies. `*.local.json` already covers model-routing.local.json and
+# cluster-routing.local.json, so they are not listed separately.
+*.local.json
+auth.json

@@ -1,0 +1,20 @@
+{
+  "name": "paseo-claude-team",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Supervisor / Lead / Peer governance for Claude Code agents running under Paseo.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\" \"test/*.test.mts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.ci.json",
+    "check": "npm run test && npm run typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "typescript": "6.0.3"
+  }
+}

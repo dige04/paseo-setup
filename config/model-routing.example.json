@@ -1,0 +1,32 @@
+{
+  "$comment": "COPY → ~/.paseo-claude-team/model-routing.local.json on EACH host. Never commit the local copy. Values below are real Claude model ids as of 2026-08; confirm with 'paseo provider models claude-peer --json' before relying on them. 'model' is the exact id Paseo expects in '<paseo-provider>/<model-id>' form. 'thinking' ∈ off|minimal|low|medium|high|xhigh|max and must be supported by the model. The point of these five classes is that the Lead routes by TASK RISK, not by habit: a monitoring sweep should not cost what a review costs.",
+  "version": 1,
+  "hostId": "replace-me-host-id",
+  "routes": {
+    "MONITOR_ECONOMY": {
+      "paseoProvider": "claude-supervisor",
+      "model": "claude-sonnet-5",
+      "thinking": "low"
+    },
+    "FAST_READ": {
+      "paseoProvider": "claude-peer",
+      "model": "claude-sonnet-5",
+      "thinking": "low"
+    },
+    "CODING_MEDIUM": {
+      "paseoProvider": "claude-peer",
+      "model": "claude-sonnet-5",
+      "thinking": "medium"
+    },
+    "REASONING_HIGH": {
+      "paseoProvider": "claude-lead",
+      "model": "claude-opus-5",
+      "thinking": "high"
+    },
+    "REVIEW_HIGH": {
+      "paseoProvider": "claude-peer",
+      "model": "claude-opus-5",
+      "thinking": "high"
+    }
+  }
+}
