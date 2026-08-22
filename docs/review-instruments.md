@@ -78,6 +78,38 @@ passes. A Lead that lost context and restarted gets round N+1, never an
 overwrite of round 1. `--review-brief-sha256` records which brief the round ran
 against, so a later round can prove it is continuing the same review.
 
+### Scope from OCR, not from recollection
+
+`--ocr-manifest` takes a `paseo.ocr-review-manifest/v1` document from
+`ocr-review.mjs` and embeds its discovery set, SHA range, and manifest digest.
+The two instruments share one selection harness: OCR decides what changed, and
+the round becomes reproducible instead of resting on the Lead's description.
+
+The important part is *which* set gets used. OCR's manifest carries both
+`reviewable_files` (what it would review) and `excluded_files` (what it dropped,
+with reasons). Ultra review takes **both**:
+
+| | OCR review | Ultra review |
+|---|---|---|
+| `tests/` (`default_path`) | excluded | **in scope** |
+| Markdown (`unsupported_ext`) | excluded | **in scope** |
+| selected code files | reviewed | in scope |
+
+OCR's exclusions are right for an acceptance decision and wrong for a bug hunt.
+A fake-pass test, a fixture that asserts its own output, or a doc contradicting
+the code is exactly what `proof-debt-catalog.md` looks for. Measured on a real
+agy-acp range: OCR selected 5 of 14 changed files, so taking the selection as
+the scout scope would have discarded all five changed test files.
+
+The generated report states that discard count explicitly, lists every
+discovered file with its exclusion reason, and adds `DISCOVERED_FILES` /
+`FILES_UNREACHED` so a file no scout inspected reads as a limitation.
+
+A manifest that is unreadable, malformed, wrong-schema, missing its SHA range or
+digest — or is actually the wrapper's *error envelope*, which is valid JSON —
+fails the run. Consuming an error envelope would produce a report that looks
+SHA-bound and reports an empty discovery set.
+
 `SCOUTS_PLANNED` / `SCOUTS_SUBMITTED` / `SCOUTS_MISSING` in the report exist so
 a scout that never returned reads as a stated limitation rather than as
 coverage.

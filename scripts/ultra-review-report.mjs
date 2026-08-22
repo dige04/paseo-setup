@@ -13,7 +13,7 @@
 // It writes exactly one file and nothing else. It never edits source, runs
 // tests, or calls an LLM.
 
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, posix, relative, resolve, sep } from "node:path";
 import { isEntrypoint } from "./lib-common.mjs";
 
@@ -21,6 +21,8 @@ export const ULTRA_REVIEW_ERROR_CODES = Object.freeze([
 	"USAGE",
 	"WORKSPACE_MISSING",
 	"REPORT_EXISTS",
+	"OCR_MANIFEST_UNREADABLE",
+	"OCR_MANIFEST_INVALID",
 ]);
 
 export class UltraReviewError extends Error {
@@ -73,6 +75,112 @@ export function nextRound(reportDir, reviewName) {
 	};
 }
 
+/**
+ * Read and validate an OCR review manifest used as the discovery source.
+ *
+ * The wrapper already bound the manifest to an exact base/candidate SHA in a
+ * clean linked worktree, so re-deriving scope here would only add a second,
+ * weaker source of truth. This reads it as provenance.
+ *
+ * Only the manifest's DISCOVERY set matters for ultra review — selected AND
+ * excluded. OCR's exclusions (tests/, Markdown) are correct for acceptance and
+ * wrong for recall: a fake-pass test is exactly what a scout should find.
+ */
+export function readOcrManifest(path) {
+	let raw;
+	try {
+		raw = readFileSync(path, "utf8");
+	} catch (error) {
+		fail("OCR_MANIFEST_UNREADABLE", `could not read OCR manifest: ${String(error?.message ?? error)}`);
+	}
+	let manifest;
+	try {
+		manifest = JSON.parse(raw);
+	} catch (error) {
+		fail("OCR_MANIFEST_INVALID", `OCR manifest is not valid JSON: ${String(error?.message ?? error)}`);
+	}
+	if (manifest?.schema !== "paseo.ocr-review-manifest/v1") {
+		fail("OCR_MANIFEST_INVALID", 'OCR manifest schema must be "paseo.ocr-review-manifest/v1"');
+	}
+	// An error envelope from the wrapper parses as JSON but carries no scope.
+	// Consuming it would produce a report claiming a discovery set of zero.
+	if (manifest.ok === false) {
+		fail("OCR_MANIFEST_INVALID", `OCR manifest records a failed preflight: ${manifest.code ?? "unknown"}`);
+	}
+	const reviewable = manifest.reviewable_files;
+	const excluded = manifest.excluded_files;
+	if (!Array.isArray(reviewable) || !Array.isArray(excluded)) {
+		fail("OCR_MANIFEST_INVALID", "OCR manifest must contain reviewable_files and excluded_files arrays");
+	}
+	for (const [field, value] of [
+		["review.base_sha", manifest.review?.base_sha],
+		["review.candidate_sha", manifest.review?.candidate_sha],
+		["manifest_digest", manifest.manifest_digest],
+	]) {
+		if (typeof value !== "string" || value === "") {
+			fail("OCR_MANIFEST_INVALID", `OCR manifest is missing ${field}`);
+		}
+	}
+	return {
+		baseSha: manifest.review.base_sha,
+		candidateSha: manifest.review.candidate_sha,
+		mergeBase: manifest.review.merge_base_sha ?? manifest.merge_base ?? "",
+		candidateTreeSha: manifest.review.candidate_tree_sha ?? "",
+		manifestDigest: manifest.manifest_digest,
+		ocrVersion: manifest.harness?.ocr_version ?? "unknown",
+		selected: reviewable.map((entry) => ({ path: entry.path, status: entry.status })),
+		excluded: excluded.map((entry) => ({
+			path: entry.path,
+			status: entry.status,
+			reason: entry.exclude_reason ?? "unspecified",
+		})),
+		ruleGroups: Array.isArray(manifest.rule_groups) ? manifest.rule_groups : [],
+	};
+}
+
+/** Manifest-derived header block. Empty string when no manifest was supplied. */
+function manifestHeader(manifest) {
+	if (!manifest) return "";
+	const discovered = manifest.selected.length + manifest.excluded.length;
+	const rows = (entries, marker) =>
+		entries.length
+			? entries
+					.map((entry) => `| \`${entry.path}\` | ${marker} | ${entry.status} | ${entry.reason ?? "—"} |`)
+					.join("\n")
+			: `| _none_ | ${marker} | — | — |`;
+	return `
+## OCR Discovery Set
+
+Scope was derived from an \`ocr-review.mjs\` manifest, not written by hand, so
+the file set is bound to an exact SHA range and is reproducible.
+
+| | |
+|---|---|
+| Base SHA | \`${manifest.baseSha}\` |
+| Candidate SHA | \`${manifest.candidateSha}\` |
+| Merge base | \`${manifest.mergeBase || "—"}\` |
+| Candidate tree | \`${manifest.candidateTreeSha || "—"}\` |
+| OCR version | ${manifest.ocrVersion} |
+| Manifest digest | \`${manifest.manifestDigest}\` |
+| Discovered | ${discovered} (selected ${manifest.selected.length} + excluded ${manifest.excluded.length}) |
+
+**Every discovered file is in scope for scouts — including the excluded ones.**
+OCR excludes \`tests/\` and Markdown because they are out of scope for an
+acceptance decision. They are not out of scope for a bug hunt: a fake-pass test
+or a doc that contradicts the code is exactly what a scout should report. Using
+OCR's *selected* set as the scout scope would silently discard
+${manifest.excluded.length} of ${discovered} changed files.
+
+| Path | OCR | Status | Exclusion reason |
+|---|---|---|---|
+${rows(manifest.selected, "selected")}
+${rows(manifest.excluded, "excluded")}
+
+Rule groups OCR resolved for the selected set (${manifest.ruleGroups.length}) are
+a checklist for those files only. They are not a bound on what scouts may report.
+`;
+}
+
 export function markdownTemplate({
 	dateSlug,
 	reviewName,
@@ -83,6 +191,7 @@ export function markdownTemplate({
 	reviewBriefSha256,
 	scoutCount,
 	directiveCount,
+	manifest,
 }) {
 	const priorLines = priorReports.length
 		? priorReports.map((name) => `- docs/ultrareview/${name}`).join("\n")
@@ -97,7 +206,7 @@ Report path: ${reportPath}
 Review brief SHA256: ${reviewBriefSha256}
 Scouts launched: ${scoutCount}
 Directives: ${directiveCount}
-
+${manifestHeader(manifest)}
 ## Prior Round Guard
 
 Previous reports read:
@@ -150,7 +259,7 @@ FINDINGS:
 SCOUTS_PLANNED:
 SCOUTS_SUBMITTED:
 SCOUTS_MISSING:
-REVIEW_LIMITATIONS: none | TODO concrete limitation and affected area
+${manifest ? `DISCOVERED_FILES: ${manifest.selected.length + manifest.excluded.length}\nFILES_UNREACHED: TODO any discovered file no scout inspected, and why\n` : ""}REVIEW_LIMITATIONS: none | TODO concrete limitation and affected area
 
 ## Strongest Reason Not To Merge Yet
 
@@ -166,7 +275,7 @@ who creates a new commit SHA — never an amend.
 
 export function parseArgs(argv) {
 	const options = { workspace: process.cwd(), date: null, dryRun: false };
-	const valued = new Set(["--workspace", "--review-name", "--scope", "--review-brief-sha256", "--scout-count", "--directive-count", "--date"]);
+	const valued = new Set(["--workspace", "--review-name", "--scope", "--review-brief-sha256", "--scout-count", "--directive-count", "--date", "--ocr-manifest"]);
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
 		if (arg === "--help" || arg === "-h") {
@@ -185,6 +294,9 @@ export function parseArgs(argv) {
 
 	if (!options.reviewName) fail("USAGE", "--review-name is required");
 	options.reviewName = slugify(options.reviewName);
+	// --scope stays required even with a manifest: the manifest supplies the
+	// file set, not the change intent, and a scout that knows which files moved
+	// but not what the change was meant to do reviews syntax, not semantics.
 	if (!options.scope || !options.scope.trim()) fail("USAGE", "--scope is required");
 	options.scope = options.scope.trim();
 	if (!/^[0-9a-f]{64}$/.test(options.reviewBriefSha256 ?? "")) {
@@ -218,6 +330,8 @@ export function main(options) {
 
 	if (existsSync(reportPath)) fail("REPORT_EXISTS", `refusing to overwrite existing report: ${relativeReportPath}`);
 
+	const manifest = options.ocrManifest ? readOcrManifest(options.ocrManifest) : null;
+
 	const content = markdownTemplate({
 		dateSlug,
 		reviewName: options.reviewName,
@@ -228,6 +342,7 @@ export function main(options) {
 		reviewBriefSha256: options.reviewBriefSha256,
 		scoutCount: options.scoutCount,
 		directiveCount: options.directiveCount,
+		manifest,
 	});
 
 	if (!options.dryRun) {
@@ -245,6 +360,18 @@ export function main(options) {
 			review_brief_sha256: options.reviewBriefSha256,
 			scout_count: options.scoutCount,
 			directive_count: options.directiveCount,
+			...(manifest
+				? {
+						ocr: {
+							base_sha: manifest.baseSha,
+							candidate_sha: manifest.candidateSha,
+							manifest_digest: manifest.manifestDigest,
+							discovered_count: manifest.selected.length + manifest.excluded.length,
+							selected_count: manifest.selected.length,
+							excluded_count: manifest.excluded.length,
+						},
+					}
+				: {}),
 			dry_run: Boolean(options.dryRun),
 		},
 		content,
@@ -262,10 +389,16 @@ Usage:
     --review-brief-sha256 <sha256> \\
     --scout-count <n> \\
     --directive-count <n> \\
-    [--date yy-mm-dd] [--dry-run]
+    [--ocr-manifest <path>] [--date yy-mm-dd] [--dry-run]
 
 Owns the report path and round number so rounds stay discoverable. Refuses to
-overwrite an existing report. Writes one file and nothing else.`;
+overwrite an existing report. Writes one file and nothing else.
+
+--ocr-manifest takes a paseo.ocr-review-manifest/v1 document produced by
+ocr-review.mjs and embeds its DISCOVERY set (selected AND excluded) plus the
+SHA range and manifest digest, so the scout scope is bound to an exact range
+instead of being described by hand. OCR's exclusions are not applied: tests and
+docs are out of scope for an acceptance decision, not for a bug hunt.`;
 }
 
 export function isMainModule(entry = process.argv[1], moduleUrl = import.meta.url) {

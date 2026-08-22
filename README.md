@@ -90,6 +90,12 @@ does not satisfy the independent review step, and a quiet ultra review does not
 imply `PASS`. Cost is real — each scout is a Peer with its own model session, so
 the default of 10 is scalable down to 4 with the count and reason recorded.
 
+It shares OCR's selection harness: pass an `ocr-review.mjs` manifest with
+`--ocr-manifest` and the scope becomes SHA-bound and reproducible instead of
+hand-described. Scouts get OCR's **discovery** set, not its selection — OCR
+drops `tests/` and Markdown because they are out of scope for *acceptance*, and
+a fake-pass test is exactly what a bug hunt should find.
+
 **Premise audit** is the only one allowed to conclude the code is excellent and
 still wrong. It derives the expected capability map before trusting repository
 vocabulary, and returns one verdict from `KEEP_FOUNDATION` to

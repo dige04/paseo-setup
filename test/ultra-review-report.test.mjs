@@ -184,6 +184,115 @@ assert.ok(ULTRA_REVIEW_ERROR_CODES.includes("USAGE"));
   assert.match(written, /Directives: 2/);
 }
 
+// --- OCR manifest as the discovery source -----------------------------------
+
+const MANIFEST = {
+  schema: "paseo.ocr-review-manifest/v1",
+  review: {
+    base_sha: "b".repeat(40),
+    candidate_sha: "c".repeat(40),
+    merge_base_sha: "b".repeat(40),
+    candidate_tree_sha: "d".repeat(40),
+  },
+  harness: { ocr_version: "1.9.9" },
+  manifest_digest: "sha256:" + "e".repeat(64),
+  reviewable_files: [{ path: "ACP Connector/acp/agent.ts", status: "modified" }],
+  excluded_files: [
+    { path: "tests/admission.test.ts", status: "modified", exclude_reason: "default_path" },
+    { path: "README.md", status: "modified", exclude_reason: "unsupported_ext" },
+  ],
+  rule_groups: [{ group_id: 1, source: "system", pattern: "**/*.ts", files: ["ACP Connector/acp/agent.ts"], rule: "..." }],
+};
+
+function writeManifest(overrides = {}) {
+  const dir = workspace();
+  const path = join(dir, "manifest.json");
+  writeFileSync(path, JSON.stringify({ ...MANIFEST, ...overrides }));
+  return path;
+}
+
+// The whole point of routing OCR into ultra review: scouts get the DISCOVERY
+// set, not the selection. Using OCR's selected set here would silently drop
+// tests/ and Markdown — precisely where fake-pass proof and stale docs live.
+{
+  const dir = workspace();
+  const result = run([...baseArgs(dir), "--date", "26-08-22", "--ocr-manifest", writeManifest()]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.json.ocr.discovered_count, 3);
+  assert.equal(result.json.ocr.selected_count, 1);
+  assert.equal(result.json.ocr.excluded_count, 2);
+  assert.equal(result.json.ocr.candidate_sha, "c".repeat(40));
+  assert.equal(result.json.ocr.manifest_digest, MANIFEST.manifest_digest);
+
+  const written = readFileSync(join(dir, result.json.report_path), "utf8");
+  // Every discovered path must appear, excluded ones included.
+  for (const path of ["ACP Connector/acp/agent.ts", "tests/admission.test.ts", "README.md"]) {
+    assert.ok(written.includes(path), `report must list discovered file ${path}`);
+  }
+  assert.match(written, /Discovered \| 3 \(selected 1 \+ excluded 2\)/);
+  assert.match(written, /would silently discard\n2 of 3 changed files/);
+  assert.match(written, /Base SHA \| `b{40}`/);
+  assert.match(written, /DISCOVERED_FILES: 3/);
+  assert.match(written, /FILES_UNREACHED:/);
+  // Exclusion reasons must survive: a scout deciding how hard to look at a
+  // file needs to know OCR dropped it for extension, not for irrelevance.
+  assert.ok(written.includes("default_path") && written.includes("unsupported_ext"));
+}
+
+// Without a manifest the report carries no OCR section and no false SHA claim.
+{
+  const dir = workspace();
+  const result = run([...baseArgs(dir), "--date", "26-08-22"]);
+  assert.equal(result.status, 0);
+  assert.equal(result.json.ocr, undefined);
+  const written = readFileSync(join(dir, result.json.report_path), "utf8");
+  assert.ok(!written.includes("OCR Discovery Set"));
+  assert.ok(!written.includes("DISCOVERED_FILES:"));
+}
+
+// A manifest that cannot be read or trusted must fail loudly. Silently
+// continuing would produce a report that looks SHA-bound but is not.
+for (const [args, code, label] of [
+  [["--ocr-manifest", join(workspace(), "absent.json")], "OCR_MANIFEST_UNREADABLE", "missing file"],
+  [["--ocr-manifest", (() => { const p = join(workspace(), "m.json"); writeFileSync(p, "{not json"); return p; })()], "OCR_MANIFEST_INVALID", "malformed json"],
+  [["--ocr-manifest", writeManifest({ schema: "something.else/v9" })], "OCR_MANIFEST_INVALID", "wrong schema"],
+  [["--ocr-manifest", writeManifest({ reviewable_files: undefined })], "OCR_MANIFEST_INVALID", "missing reviewable_files"],
+  [["--ocr-manifest", writeManifest({ review: { candidate_sha: "c".repeat(40) } })], "OCR_MANIFEST_INVALID", "missing base_sha"],
+  [["--ocr-manifest", writeManifest({ manifest_digest: undefined })], "OCR_MANIFEST_INVALID", "missing digest"],
+]) {
+  const result = run([...baseArgs(workspace()), ...args]);
+  assert.equal(result.status, 2, label);
+  assert.equal(result.json.code, code, label);
+}
+
+// The wrapper's ERROR envelope is valid JSON and would otherwise be consumed as
+// a manifest with an empty discovery set — a report claiming zero changed files
+// from a preflight that never ran.
+{
+  const path = join(workspace(), "err.json");
+  writeFileSync(path, JSON.stringify({ ok: false, code: "DIRTY_REVIEW_WORKSPACE", message: "…" }));
+  const result = run([...baseArgs(workspace()), "--ocr-manifest", path]);
+  assert.equal(result.status, 2);
+  assert.equal(result.json.code, "OCR_MANIFEST_INVALID");
+}
+
+// A zero-selection manifest is still a usable discovery set: OCR selecting
+// nothing (a docs-only commit) must not read as "nothing changed".
+{
+  const dir = workspace();
+  const path = writeManifest({
+    reviewable_files: [],
+    excluded_files: [{ path: "README.md", status: "modified", exclude_reason: "unsupported_ext" }],
+    rule_groups: [],
+  });
+  const result = run([...baseArgs(dir), "--date", "26-08-22", "--ocr-manifest", path]);
+  assert.equal(result.status, 0);
+  assert.equal(result.json.ocr.discovered_count, 1);
+  const written = readFileSync(join(dir, result.json.report_path), "utf8");
+  assert.match(written, /\| _none_ \| selected \|/);
+  assert.ok(written.includes("README.md"));
+}
+
 // --- template ---------------------------------------------------------------
 
 {

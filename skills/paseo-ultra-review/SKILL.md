@@ -45,6 +45,56 @@ managers, proof commands, or task runners — a scout that runs the suite is
 producing evidence about an implementation, not recall about a defect, and it
 mutates timestamps and caches inside a workspace another agent may own.
 
+## Deriving scope from OCR — preferred
+
+When the review is a commit range, do **not** describe the file set by hand.
+Run the OCR wrapper first and feed its manifest to the scaffold:
+
+```text
+git worktree add --detach <review-worktree> <candidate-sha>
+
+node <PASEO_TEAM_SCRIPTS_DIR>/ocr-review.mjs \
+  --repo <review-worktree> --base <base-sha> --candidate <candidate-sha> \
+  > <manifest-path-outside-the-worktree>
+
+node <PASEO_TEAM_SCRIPTS_DIR>/ultra-review-report.mjs \
+  --workspace <repo-root> --review-name <slug> --scope "<change intent>" \
+  --review-brief-sha256 <sha256> --scout-count <n> --directive-count <n> \
+  --ocr-manifest <manifest-path>
+```
+
+This buys three things a hand-written scope cannot: the file set is bound to an
+exact SHA range, the manifest digest makes the round reproducible, and the
+discovery is OCR's rather than the Lead's recollection.
+
+Write the manifest **outside** the reviewed worktree — creating it inside
+correctly trips OCR's own dirty-workspace gate.
+
+### OCR's exclusions do not apply to scouts
+
+The scaffold embeds OCR's **discovery** set — selected *and* excluded — and
+every discovered file is in scope for scouts.
+
+OCR excludes `tests/` (`default_path`) and Markdown (`unsupported_ext`) because
+they are out of scope for an *acceptance decision*. They are squarely in scope
+for a *bug hunt*: a fake-pass test, a fixture asserting its own output, or a doc
+that contradicts the code is exactly what `references/proof-debt-catalog.md`
+hunts. On a real agy-acp range, OCR selected 5 of 14 changed files — taking the
+selection as the scout scope would have discarded all five test files.
+
+So: never pass OCR's `reviewable_files` as the scout scope. Pass the full
+discovery set, and tell scouts which files OCR excluded and why — the reason
+informs how hard to look, it does not remove the file.
+
+The resolved rule groups are a checklist for the selected files only. They are
+never a bound on what a scout may report.
+
+### Report `FILES_UNREACHED`
+
+With a manifest, the report gains `DISCOVERED_FILES` and `FILES_UNREACHED`.
+Account for every discovered file: any that no scout inspected is a stated
+limitation. Recall means knowing what was not looked at.
+
 ## Scout allocation
 
 ### Count
@@ -184,11 +234,16 @@ Create exactly one report:
 node <PASEO_TEAM_SCRIPTS_DIR>/ultra-review-report.mjs \
   --workspace <repo-root> \
   --review-name <slug> \
-  --scope "<scope>" \
+  --scope "<change intent>" \
   --review-brief-sha256 <sha256> \
   --scout-count <n> \
-  --directive-count <n>
+  --directive-count <n> \
+  [--ocr-manifest <path>]
 ```
+
+`--scope` stays required even with a manifest: the manifest supplies the file
+set, not the change intent. A scout that knows which files moved but not what
+the change was meant to achieve reviews syntax, not semantics.
 
 The `--review-brief-sha256` is the SHA-256 of the authoritative review brief
 text, so a later round can prove which brief it ran against. Compute it with
