@@ -38,13 +38,31 @@ PASEO_TEAM_TASK_V3_END
 
 TASK_BODY_BEGIN
 
-OBJECTIVE:
-Fix the divide-by-zero and negative-sqrt edge cases in calculator.py so that
-all tests in test_calculator.py pass without changing their assertions.
+OUTCOME:
+calculator.py handles divide-by-zero and negative-sqrt inputs the way its
+existing tests already specify, without those assertions being changed.
 
-SUCCESS_BOUNDARY:
-python -m pytest test_calculator.py --tb=short passes; git status --porcelain
-is empty after the final commit.
+CHANGE_BOUNDARY:
+calculator.py and test_calculator.py. Read wider if callers matter; this is a
+hint about where the change lands, not a limit on what you may investigate.
+
+INVARIANTS:
+- No existing test assertion is edited to make a failure disappear.
+- Error behavior is the same whether the input is literal or computed.
+
+DEPENDS_ON: none — this task is on the frontier.
+
+REOPEN_WHEN:
+- The two tests encode contradictory expectations, so no single behavior
+  satisfies both.
+- The edge case belongs to a caller or a shared numeric helper rather than to
+  calculator.py — do not add a local guard to paper over the wrong owner.
+
+ACCEPTANCE:
+- python -m pytest test_calculator.py --tb=short passes, with the output shown.
+- git status --porcelain is empty after the final commit.
+- Note that a green suite alone is not acceptance: state what the observed
+  behavior now is for each edge case.
 
 KNOWN_EVIDENCE:
 - test_calculator.py currently has two failing tests (divide by zero, sqrt of

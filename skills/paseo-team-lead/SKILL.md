@@ -38,6 +38,132 @@ Synthesize evidence. Record:
 - verification;
 - unresolved risks.
 
+## Planning
+
+The plan is a **map**, not the truth. Code and real constraints are the truth,
+and a Peer that discovers the map is wrong is doing its job. Plan only as far as
+the next real decision point.
+
+### 1. Classify the problem first
+
+| Shape | Signal | How to plan |
+|---|---|---|
+| **Horizontal** | CRUD, a new endpoint next to five like it, bounded, few dependencies | Slice independently, parallelize freely, keep the plan thin |
+| **Vertical** | the later slice depends on architecture and lifecycle the earlier slice will reveal | Plan to the next decision point only; do not pretend the shape is known |
+
+Do not apply vertical ceremony to horizontal work, and do not slice vertical
+work as if it were horizontal. Misclassifying downward is the more expensive
+error: it produces slices that each pass while the seam between them rots.
+
+### 2. Plan for agents, not for a human team
+
+A Peer may finish in an hour what a person schedules over a week. Splitting that
+into five phases because it "looks professional" manufactures compile bridges,
+transition layers, and compatibility shims — which a later phase then deletes.
+If one coherent final-state change is available, take it.
+
+A phase boundary must buy something: a stable contract, an independently
+acceptable behavior, a locked architectural decision, or an observable
+integration state. A boundary that buys only the appearance of process is cost.
+
+### 3. Fix only the contracts that must be fixed
+
+For an ordinary vertical web slice a Peer needs: the API contract, validation
+rules, persistence shape, and test strategy. The rest it can close over while
+implementing. Every additional micro-decision you fix in advance is one the Peer
+cannot correct when the code disagrees with you.
+
+### 4. Check the foundation before the feature
+
+Before slicing anything, answer:
+
+- Who owns this domain **today**?
+- Does this concern change independently of its neighbour, or together?
+- Is there an invariant spanning DB, API, and retry?
+- Does this feature need a mechanism that does not exist yet?
+- Does the current dependency direction support the change, or fight it?
+
+If a feature needs mechanism Y and the plan omits Y, the implementation will
+either fake-pass or invent a homemade Y. A strong model makes this worse, not
+better: it is fully capable of building a wrapper, a lock, and an adapter so the
+task passes over a foundation that should have been fixed. **Unknown answers
+mean the first task is discovery or a foundation decision, not implementation.**
+
+### 5. Build the dependency graph from real change, not from priority numbers
+
+```text
+T0: verify pricing owner + invariants (read-only)
+ ↓
+T1: domain contract for discount calculation (one writer)
+ ├─→ T2: API adapter        (only after T1's contract is stable)
+ └─→ T3: checkout UI        (parallel with T2 once the contract is frozen)
+       ↓
+T4: integration + failure/retry acceptance
+```
+
+T2 and T3 run in parallel because they consume a frozen contract and share no
+moving write scope. T0 and T1 do not, because discovery can change T1's shape.
+
+Parallelize only what is genuinely independent, and decide that **before**
+creating worktrees. One owner per moving write scope, always.
+
+### 6. Seven fields per task
+
+```yaml
+task: domain-discount-contract
+outcome: checkout computes one authoritative discounted total
+owner: one writable owner
+depends_on: [foundation-pricing-decision]
+change_boundary: domain pricing only
+invariants:
+  - retry does not double-apply discount
+  - persisted total equals charged total
+acceptance:
+  - observed behavior
+  - relevant tests/proof
+reopen_when:
+  - pricing owner turns out to be elsewhere
+  - persistence lifecycle cannot support the invariant
+```
+
+`outcome` states the effect, never the solution. Write "checkout computes one
+authoritative discounted total", not "create `DiscountService`, add four files,
+use event bus X". Naming the class before the constraint is known means the Peer
+executes a shape you guessed, hits the real constraint mid-implementation, and
+adds an adapter to rescue your plan — the task passes and the architecture is
+worse.
+
+Any file list is a **hint**. The Peer may investigate wider and must escalate
+when a premise is wrong.
+
+`reopen_when` is the part most often skipped and the part that pays. It tells
+the Peer, in advance, which discoveries justify stopping instead of coding
+around the problem.
+
+### 7. Reconcile every 3–4 tasks
+
+Priority arithmetic is not an ordering. Re-derive it:
+
+1. Compare the plan with the code and the dependencies that have since surfaced.
+2. Delete tasks another task has absorbed.
+3. Reorder when a lower-priority task builds the right foundation for a higher
+   one — a P2 that makes P0 correct goes first.
+4. Reopen the architecture when Peers are adding wrappers, duplicate state, or
+   compatibility layers. That is the foundation reporting a problem through the
+   only channel it has.
+5. Re-cut the parallel frontier to what is independent *now*, not what looked
+   independent at planning time.
+
+### 8. Do not pre-solve
+
+If you have already picked the solution, the files, and the acceptance criteria,
+and you are only asking the Peer for PASS/FAIL, you have built a confirmation
+function, not an independent coding agent — and you have lost the second opinion
+you were paying for.
+
+Give the objective, the constraints, and the evidence. Let the Peer choose the
+shape and disagree with you.
+
 ## Accessing Paseo tools
 
 Paseo tools are not separate tools in the prompt — they are reached through the
@@ -328,14 +454,36 @@ shell authority beyond the watchdog.
 
 ## Completion
 
-Report:
+Emit a `LEAD_REPORT`:
 
-- candidate SHA;
-- changed files;
-- test results;
-- reviewer verdict;
-- unresolved risks;
-- Human action required.
+```text
+LEAD_REPORT
+
+TASK_ID:
+CANDIDATE_SHA:
+FILES_CHANGED:
+VERIFICATION:              # test results, with the output — not "tests pass"
+REVIEWER_VERDICT:          # PASS | CHANGES_REQUIRED | BLOCKED (a recommendation)
+
+PLAN_DELTA:                # how the plan changed against what was built
+  ABSORBED:                # tasks another task made unnecessary
+  REORDERED:               # and the foundation reason for it
+  REOPENED:                # premises that turned out wrong
+  STILL_ASSUMED:           # what remains unverified
+
+FOUNDATION_DEBT:           # wrappers, adapters, duplicate state or compatibility
+                           # layers this task added, and which owner should have
+                           # held the responsibility instead. "none" is a valid
+                           # and common answer — but write it deliberately.
+
+UNRESOLVED_RISKS:
+HUMAN_ACTION_REQUIRED:
+```
+
+`PLAN_DELTA` and `FOUNDATION_DEBT` are the memory that makes the next reconcile
+possible. Without them each round re-derives the plan from scratch and the same
+wrong premise gets rebuilt; the drift shows up only when someone later asks why
+three adapters exist.
 
 Never merge or deploy yourself — that decision belongs to Human.
 
@@ -396,10 +544,21 @@ RETURN_CHANNEL: paseo
 PASEO_TEAM_TASK_V3_END
 
 TASK_BODY_BEGIN
-OBJECTIVE / SUCCESS_BOUNDARY / KNOWN_EVIDENCE / QUESTIONS TO ANSWER
-CONSTRAINTS / REQUIRED HANDOFF
+OUTCOME             # the effect, never the solution
+CHANGE_BOUNDARY     # a hint, not a limit on investigation
+INVARIANTS          # what must hold, including across retry and failure
+DEPENDS_ON          # empty means this is on the frontier
+REOPEN_WHEN         # which wrong premises justify stopping
+ACCEPTANCE          # observed behavior + proof; never "tests pass" alone
+KNOWN_EVIDENCE / QUESTIONS TO ANSWER / CONSTRAINTS / REQUIRED HANDOFF
 TASK_BODY_END
 ```
+
+The task body grants no authority — these fields tell the Peer what must be true
+and when to stop, not what it may do. `OUTCOME` and `REOPEN_WHEN` carry the most
+weight: one stops you pre-solving, the other gives the Peer a legitimate exit
+when the map is wrong. Omit both and its only remaining option is to code around
+the problem.
 
 `BROWSER_MCP_AUTHORITY: allowed` is a narrow, current-turn grant: it permits
 only MCP targets prefixed by `agent_browser_`/`agent-browser_` (and compatible

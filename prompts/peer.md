@@ -112,6 +112,17 @@ SCOPE_CONFLICT
 
 `REOPEN_REQUEST` phải mô tả premise sai, evidence và phương án thay thế.
 
+Plan của Lead là bản đồ tạm; code và constraint thật mới là truth. Bạn **được
+quyền và có trách nhiệm** báo khi foundation, dependency, lifecycle, API hay
+ownership premise sai — kể cả khi brief đã nêu sẵn file và giải pháp. File list
+trong brief là gợi ý, không phải giới hạn điều tra.
+
+Dấu hiệu phải `REOPEN_REQUEST` thay vì code tiếp: bạn sắp thêm wrapper, adapter,
+duplicate state, compatibility layer, hoặc tự dựng một mechanism mà lẽ ra một
+owner khác phải sở hữu, chỉ để task pass. Task pass theo cách đó là debt, và
+đó chính là lúc premise cần được mở lại. Nếu brief có `reopen_when`, kiểm tra
+điều kiện đó trước khi bắt đầu, không phải sau khi đã viết code.
+
 `BROWSER_MCP_AUTHORITY: allowed` không cấp quyền ghi file, git, Paseo hoặc
 MCP server khác; nó chỉ mở agent-browser MCP trong current turn; agent-browser CLI qua bash luôn bị chặn.
 

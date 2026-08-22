@@ -76,10 +76,42 @@ Engineer Peer.
    `BROWSER_MCP_AUTHORITY: allowed` when the Peer needs browser automation;
    this does not grant Paseo MCP or unrelated MCP servers.
 
+## Planning invariants
+
+Plan là **bản đồ tạm**; code và constraint thật mới là truth. Chi tiết quy trình
+nằm trong skill `paseo-team-lead` mục *Planning*; ở đây là phần không được phá:
+
+1. **Phân loại trước khi chia**: bài toán ngang (CRUD, mở rộng bounded) chia
+   độc lập được; bài toán dọc thì slice sau phụ thuộc architecture/lifecycle mà
+   slice trước mới lộ ra — chỉ plan tới decision point kế tiếp.
+2. **Foundation trước feature**: nếu feature cần mechanism chưa tồn tại, task
+   đầu tiên là discovery/foundation decision, không phải implementation. Model
+   mạnh hoàn toàn đủ sức dựng wrapper/lock/adapter để task pass trên nền sai —
+   đó là debt, không phải thành công.
+3. **Outcome, không phải solution**: brief nêu hiệu quả cần đạt và constraint.
+   Chốt sẵn class/file/API trước khi biết constraint thật sẽ khiến Peer thi hành
+   một shape bạn đoán, rồi thêm adapter để cứu plan.
+4. **Peer được quyền nói plan sai**: `REOPEN_REQUEST` về foundation, dependency,
+   lifecycle, API hay ownership premise là hành vi đúng, không phải thất bại.
+   Mỗi task nên có sẵn điều kiện reopen.
+5. **Reconcile mỗi 3–4 task**: xóa task đã bị hấp thụ, đổi thứ tự khi task
+   priority thấp tạo foundation đúng cho task cao hơn, và reopen architecture
+   khi Peer bắt đầu thêm wrapper/duplicate state/compatibility layer.
+6. **Chỉ song song phần thật sự độc lập**, quyết định trước khi tạo worktree.
+7. **Phase phải mua được thứ gì đó** — contract ổn định, behavior nghiệm thu
+   độc lập, decision cần khóa, hoặc integration state quan sát được. Chia 5–6
+   phase cho việc agent làm trong vài giờ chỉ đẻ ra compile bridge và
+   transition layer rồi xóa ở phase sau.
+
 ## Anti-patterns
 
 - Gửi verdict trá hình ("Implement solution X exactly as follows...") thay
   vì objective + constraints + evidence.
+- Pre-solve: đã chốt sẵn solution/file/tiêu chí, chỉ hỏi Peer PASS/FAIL — Peer
+  thành function xác nhận, mất luôn ý kiến độc lập mình đang trả tiền để có.
+- Chốt tên class/API trước khi biết constraint thật.
+- Chia phase theo timeline của đội người thay vì theo decision point.
+- Bỏ qua mechanism còn thiếu rồi nhận một task "pass" nhờ wrapper.
 - Chấp nhận `finished`/`idle`/exit-0 đơn lẻ làm acceptance evidence.
 - Tin model name trong prompt thay vì runtime config.
 - Tạo Reviewer trong working tree của Engineer thay vì fresh detached checkout.
@@ -115,7 +147,13 @@ trước hoặc song song, không dùng nó thay thế.
 
 ## Operating cycle (tóm tắt — chi tiết trong skill)
 
-Intake → Repository reconstruction → Open brainstorming → Host/model routing
-→ Implementation delegation → Candidate production → Independent review →
-Correction → Acceptance recommendation. Định dạng ROUTING_DECISION,
-LEAD_REPORT và Peer output contract: xem skill `paseo-team-lead`.
+Intake → Repository reconstruction → Open brainstorming → **Planning
+(phân loại ngang/dọc → foundation check → dependency graph)** → Host/model
+routing → Implementation delegation → Candidate production → Independent
+review → Correction → **Reconcile (mỗi 3–4 task, quay lại Planning)** →
+Acceptance recommendation.
+
+Vòng lặp không thẳng: Reconcile quay ngược về Planning, và một `REOPEN_REQUEST`
+từ Peer có thể đưa cả chu trình về Planning hoặc brainstorming. Định dạng
+ROUTING_DECISION, LEAD_REPORT và Peer output contract: xem skill
+`paseo-team-lead`.

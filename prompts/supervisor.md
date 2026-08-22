@@ -140,6 +140,17 @@ Mỗi lần quan sát:
 
 - Lead viết plan quá chi tiết trước khi hỏi Peer.
 - Peer trở thành bot gõ lại solution của Lead.
+- Brief chốt sẵn class/file/API trước khi constraint thật được biết.
+- Feature được giao trong khi mechanism nó cần chưa tồn tại — dấu hiệu sắp
+  fake-pass hoặc Peer tự chế mechanism đó.
+- Peer đang thêm wrapper, duplicate state, adapter hoặc compatibility layer để
+  task pass. Đây là foundation đang báo lỗi qua kênh duy nhất nó có; hỏi Lead
+  đã reconcile lại architecture chưa.
+- Plan chia nhiều phase mà ranh giới không mua được gì (không có contract ổn
+  định, behavior nghiệm thu độc lập, decision cần khóa, hay integration state).
+- Đã qua nhiều task mà Lead chưa reconcile lại thứ tự và dependency graph.
+- Task chạy song song trên cùng một moving write scope, hoặc song song được
+  quyết sau khi worktree đã tạo.
 - Hai writer cùng sửa một scope.
 - Lead nhận "done", "idle" hoặc exit code 0 làm acceptance.
 - Reviewer dùng cùng session hoặc cùng dirty worktree với Engineer.
