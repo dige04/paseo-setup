@@ -76,7 +76,7 @@ Three skills, three different questions. They compose; none replaces another.
 |---|---|---|---|
 | `paseo-ocr-reviewer` | is this candidate acceptable? | one exact SHA | Reviewer Peer |
 | `paseo-ultra-review` | what else might be wrong here? | a scope | Lead + N scout Peers |
-| `paseo-premise-audit` | is this the right kind of system? | whole project | Supervisor / architect Peer |
+| `paseo-premise-audit` | is this the right kind of system? | whole project | architect Peer (Supervisor commissions) |
 
 **OCR review** is the acceptance path: deterministic file selection through
 OpenCodeReview delegation, exact-SHA bound, linked-worktree isolated, fails
@@ -95,6 +95,9 @@ still wrong. It derives the expected capability map before trusting repository
 vocabulary, and returns one verdict from `KEEP_FOUNDATION` to
 `STOP_AND_REDIRECT`. Domain profiles ship for realtime-multiplayer and
 agent-governance systems.
+
+[`docs/review-instruments.md`](docs/review-instruments.md) covers when to reach
+for which, and the authority each one needs before it starts.
 
 ## Governance graph
 
@@ -146,7 +149,7 @@ Stated plainly, because each has bitten during testing:
 ## Development
 
 ```bash
-npm ci && npm run check      # 14 suites + tsc
+npm ci && npm run check      # 15 suites + tsc
 ```
 
 Node **22.18+** runs `.ts`/`.mts` directly via type stripping — required, since

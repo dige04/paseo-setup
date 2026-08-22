@@ -9,7 +9,7 @@ failure — an ultra review that "found nothing" is not an acceptance, and an OC
 |---|---|---|---|---|
 | `paseo-ocr-reviewer` | is this candidate acceptable? | one exact SHA | Reviewer Peer | recommendation + coverage |
 | `paseo-ultra-review` | what else might be wrong here? | a scope | Lead + N scout Peers | durable candidate report |
-| `paseo-premise-audit` | is this the right kind of system? | whole project | Supervisor / architect Peer | one verdict + evidence |
+| `paseo-premise-audit` | is this the right kind of system? | whole project | architect Peer (Supervisor commissions) | one verdict + evidence |
 
 ## paseo-ocr-reviewer — acceptance
 
@@ -82,6 +82,20 @@ against, so a later round can prove it is continuing the same review.
 a scout that never returned reads as a stated limitation rather than as
 coverage.
 
+### Write authority, checked before dispatch
+
+The scaffold runs through Bash, which the Lead holds unrestricted — but filling
+in the report uses `Write`/`Edit`, which are denied for the Lead unless
+`PASEO_TEAM_LEAD_WRITE=1` or the Workspace Protocol grants
+`LEAD_WRITE_POLICY: allowed`.
+
+Left unchecked, the failure lands after ten scouts have already been paid for:
+the scaffold exists, the candidates are in hand, and the file cannot be
+completed. The skill requires confirming write authority *before* dispatching
+and reporting `BLOCKED: LEAD_WRITE_UNAVAILABLE` otherwise. Shelling out to write
+the file instead is not an option — defeating the gate from Bash would make
+every other write restriction in the pack advisory.
+
 ### Restart recovery
 
 A restart notice is a recovery trigger, not permission to start over. Freeze the
@@ -123,9 +137,14 @@ is a finding only when it lacks a product need, owner, lifecycle, consumer,
 scaling contract, or failure contract — visible complexity that the domain
 genuinely requires is not overengineering.
 
-Under SLP this is normally a Supervisor instrument. `REDIRECT_RECOMMENDED` and
-`STOP_AND_REDIRECT` are always `HUMAN_DECISION_REQUIRED: yes`: changing
-architectural direction is outside the Supervisor's delegated decisions.
+It runs as a read-only `solution-architect` Peer. A Supervisor **commissions** it
+and reads the verdict but cannot run it: the Claude policy allows the Supervisor
+no shell authority beyond the read-only watchdog, and an audit that must trace
+production routes would be blocked at its first `Bash` call.
+
+`REDIRECT_RECOMMENDED` and `STOP_AND_REDIRECT` are always
+`HUMAN_DECISION_REQUIRED: yes`: changing architectural direction is outside the
+Supervisor's delegated decisions, whatever the audit concluded.
 
 ## Choosing
 

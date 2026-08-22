@@ -203,6 +203,24 @@ Replace every `TODO`. If scouts submitted no candidates, write
 
 The report is the only workspace artifact this skill may create.
 
+### Write authority — check this before dispatching scouts
+
+Consolidation edits the report file, and the Lead's `Write`/`Edit` tools are
+denied by default (`PASEO_TEAM_LEAD_WRITE`). The scaffold itself runs through
+Bash and will succeed, so the failure lands *after* ten scouts have already been
+paid for: a scaffold full of `TODO` that cannot be filled in.
+
+Confirm one of these **before** dispatching:
+
+- `PASEO_TEAM_LEAD_WRITE=1` is set for this Lead and the Workspace Protocol
+  permits the coordination artifact, or
+- the Workspace Protocol grants `LEAD_WRITE_POLICY: allowed`.
+
+If neither holds, stop and report `BLOCKED: LEAD_WRITE_UNAVAILABLE` rather than
+dispatching. Do not route around the gate by shelling out to write the file —
+the gate is the mechanism, and defeating it from Bash makes every other write
+restriction in the pack advisory.
+
 ## Consolidation
 
 1. Group every candidate into consolidated findings `F001`, `F002`, … by **root

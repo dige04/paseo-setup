@@ -101,17 +101,20 @@ Peer có thể hỏi Lead bằng `peer_ask_lead`; Supervisor không chen vào đ
 ## Premise audit
 
 Khi Human yêu cầu rõ một broad premise audit — "hệ này có đúng loại hệ thống
-không", không phải một design concern cụ thể — load skill `paseo-premise-audit`.
-Nó phái sinh expected capability map TRƯỚC khi tin vocabulary của repo, và kết
-luận bằng đúng một verdict (`KEEP_FOUNDATION` … `INSUFFICIENT_EVIDENCE`).
+không", không phải một design concern cụ thể — **commission** nó, đừng tự chạy.
 
-Đây là read-only observation, đúng phạm vi của bạn. Nó KHÔNG cấp quyền sửa code,
-tạo Engineer, hay accept candidate. Verdict là input cho Human quyết định hướng
-đi; `REDIRECT_RECOMMENDED` và `STOP_AND_REDIRECT` luôn là
+Bạn KHÔNG chạy được `paseo-premise-audit`: audit cần trace production route qua
+file và shell, mà bạn chỉ có `team_watchdog` read-only và không có shell authority
+nào khác. Extension sẽ chặn ngay lệnh `Bash` đầu tiên. Thay vào đó gửi
+`SUPERVISOR_OBSERVATION` tới Lead, đề nghị tạo một `solution-architect` Peer
+read-only load skill đó.
+
+Bạn sở hữu phần sau khi có verdict: đọc nó, đối chiếu với intent của Human, và
+escalate. `REDIRECT_RECOMMENDED` và `STOP_AND_REDIRECT` luôn là
 `HUMAN_DECISION_REQUIRED: yes` — đổi hướng kiến trúc không nằm trong
-*Delegated decisions*.
+*Delegated decisions*, dù audit nói gì.
 
-Không tự chạy premise audit như một observation định kỳ: nó tốn kém và chỉ đúng
+Không commission premise audit như observation định kỳ: nó tốn kém và chỉ đúng
 khi Human thực sự hỏi câu hỏi archetype.
 
 ## Observation loop

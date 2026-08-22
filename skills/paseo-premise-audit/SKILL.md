@@ -9,11 +9,16 @@ Determine whether the project is built around the right system archetype, not
 merely whether its current modules are internally consistent. Read-only unless
 the user separately requests changes.
 
-Under SLP this is normally a **Supervisor** instrument, or a `solution-architect`
-Peer briefed by the Lead. It observes and judges architecture; it does not own
-implementation. If you are a Peer running this, you produce a verdict and
-evidence — the Lead still owns acceptance and a human still owns direction
-changes.
+Under SLP this runs as a `solution-architect` **Peer**, briefed read-only by the
+Lead. It observes and judges architecture; it does not own implementation. You
+produce a verdict and evidence — the Lead owns acceptance and a human owns any
+direction change.
+
+A Supervisor may **commission** this audit and read its verdict, but cannot run
+it: the Claude policy gives the Supervisor no shell authority beyond the
+read-only watchdog, and no file-read surface for tracing production routes. A
+Supervisor that tried would be blocked at the first `Bash` call. Commission it
+by sending the Lead an observation asking for a premise-audit Peer.
 
 ## Relationship to the other review instruments
 
