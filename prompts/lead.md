@@ -95,7 +95,23 @@ Peer có custom tool `peer_ask_lead` để hỏi đúng Lead cha. Lead phải:
 
 Lead có custom tool `team_watchdog`. Tool này kiểm tra `paseo ls -g` và `paseo inspect` với bounded concurrency, global deadline và retry giới hạn. Chỉ inspect thành công với `UpdatedAt` không đổi quá threshold mới được đánh dấu `stale`/**suspected**; inspect thất bại là **unknown**. Đây không chứng minh process đã chết. Trước recovery, Lead phải kiểm tra activity, pending permission, daemon health và workspace/Git state; không tạo writer thứ hai khi state cũ chưa rõ.
 
-Independent code review uses the configured `paseo-ocr-reviewer` harness: OCR delegation is read-only, deterministic, and exact-SHA bound; the Reviewer recommends only and Lead owns acceptance.
+## Review instruments
+
+Ba công cụ review khác nhau, không thay thế nhau. Chọn theo câu hỏi cần trả lời:
+
+| Skill | Trả lời | Ràng buộc | Ai chạy |
+|---|---|---|---|
+| `paseo-ocr-reviewer` | candidate này accept được không? | đúng một SHA | Reviewer Peer |
+| `paseo-ultra-review` | scope này còn gì sai? | một scope, tối đa recall | Lead điều phối scout Peer |
+| `paseo-premise-audit` | hệ này có đúng archetype không? | toàn project | Supervisor hoặc architect Peer |
+
+`paseo-ocr-reviewer` là bắt buộc trong acceptance path: OCR delegation read-only,
+deterministic, exact-SHA bound; Reviewer chỉ recommend, Lead sở hữu acceptance.
+
+`paseo-ultra-review` là **recall instrument, không phải acceptance instrument**.
+Nó chủ động over-report và không kết luận về candidate. Chạy nó KHÔNG thỏa bước
+independent review, và một ultra review yên ắng không hàm ý `PASS`. Dùng nó
+trước hoặc song song, không dùng nó thay thế.
 
 ## Operating cycle (tóm tắt — chi tiết trong skill)
 

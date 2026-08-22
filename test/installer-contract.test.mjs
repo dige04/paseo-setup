@@ -10,6 +10,7 @@ import { isMainModule as isRemoteMain } from "../scripts/remote-paseo.mjs";
 import { isMainModule as isRoutingMain } from "../scripts/model-routing.mjs";
 import { isMainModule as isOcrMain } from "../scripts/ocr-setup.mjs";
 import { isMainModule as isOcrReviewMain } from "../scripts/ocr-review.mjs";
+import { isMainModule as isUltraReviewMain } from "../scripts/ultra-review-report.mjs";
 import { isMainModule as isCommunicationMain } from "../scripts/team-communication.mjs";
 import { isMainModule as isWatchdogMain } from "../scripts/watchdog.mjs";
 import { isMainModule as isPathMain } from "../scripts/team-scripts-path.mjs";
@@ -18,7 +19,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = join(root, "scripts");
 const installed = mkdtempSync(join(tmpdir(), "paseo-installed-support-"));
 const unrelatedCwd = mkdtempSync(join(tmpdir(), "paseo-unrelated-cwd-"));
-for (const file of ["lib-common.mjs", "remote-paseo.mjs", "model-routing.mjs", "reliability.mjs", "team-communication.mjs", "watchdog.mjs", "ocr-review.mjs", "ocr-setup.mjs", "team-scripts-path.mjs"]) {
+for (const file of ["lib-common.mjs", "remote-paseo.mjs", "model-routing.mjs", "reliability.mjs", "team-communication.mjs", "watchdog.mjs", "ocr-review.mjs", "ocr-setup.mjs", "ultra-review-report.mjs", "team-scripts-path.mjs"]) {
   cpSync(join(source, file), join(installed, file));
 }
 
@@ -69,6 +70,7 @@ const symlinkCases = [
   [join(installed, "model-routing.mjs"), isRoutingMain],
   [join(installed, "ocr-setup.mjs"), isOcrMain],
   [join(installed, "ocr-review.mjs"), isOcrReviewMain],
+  [join(installed, "ultra-review-report.mjs"), isUltraReviewMain],
   [join(installed, "team-communication.mjs"), isCommunicationMain],
   [join(installed, "watchdog.mjs"), isWatchdogMain],
   [join(installed, "team-scripts-path.mjs"), isPathMain],
@@ -101,6 +103,14 @@ for (const [target, isMain] of symlinkCases) {
       encoding: "utf8",
     });
     assert.match(symlinkOutput, /ocr-review\.mjs/);
+  }
+  if (target.endsWith("ultra-review-report.mjs")) {
+    const symlinkOutput = execFileSync(process.execPath, [link, "--help"], {
+      cwd: unrelatedCwd,
+      env,
+      encoding: "utf8",
+    });
+    assert.match(symlinkOutput, /ultra-review-report\.mjs/);
   }
   if (target.endsWith("team-scripts-path.mjs")) {
     const resolvedOutput = execFileSync(process.execPath, [link], {
@@ -203,7 +213,7 @@ const CLAUDE_SKILL_LOOP = {
 for (const [installer, pattern] of Object.entries(CLAUDE_SKILL_LOOP)) {
   const match = installerCode(installer).match(pattern);
   assert.ok(match, `${installer} has no Claude skills install loop`);
-  for (const skill of ["paseo-team-lead", "paseo-ocr-reviewer"]) {
+  for (const skill of ["paseo-team-lead", "paseo-ocr-reviewer", "paseo-ultra-review", "paseo-premise-audit"]) {
     assert.ok(
       existsSync(join(root, "skills", skill, "SKILL.md")),
       `skills/${skill}/SKILL.md is missing from the repo`,
@@ -213,6 +223,24 @@ for (const [installer, pattern] of Object.entries(CLAUDE_SKILL_LOOP)) {
       `${installer}'s Claude skills loop must copy ${skill}`,
     );
   }
+}
+
+// A skill that points at a reference file must ship that file. A dangling
+// pointer is the mechanism-free claim the premise-audit catalog warns about:
+// the skill promises a domain profile that does not exist, and the agent
+// silently proceeds without it.
+{
+	const linkRe = /\]\((references\/[a-z0-9./-]+\.md)\)/g;
+	for (const skill of ["paseo-ultra-review", "paseo-premise-audit"]) {
+		const skillDir = join(root, "skills", skill);
+		const body = readFileSync(join(skillDir, "SKILL.md"), "utf8");
+		for (const [, target] of body.matchAll(linkRe)) {
+			assert.ok(
+				existsSync(join(skillDir, target)),
+				`skills/${skill}/SKILL.md links ${target}, which does not exist`,
+			);
+		}
+	}
 }
 
 // A shared skill must not hard-code one runtime's provider family: naming only

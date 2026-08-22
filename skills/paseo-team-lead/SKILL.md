@@ -305,6 +305,26 @@ After implementation:
 7. Preserve the existing one-writer, fresh-reviewer-workspace, exact-SHA, Lead
    acceptance, and Human merge/deploy invariants.
 
+### Optional: broad recall before or alongside review
+
+`paseo-ultra-review` dispatches N independent read-only scout Peers over a scope
+with deliberately overlapping concerns, and consolidates every candidate into
+one durable report. Use it when the change is large, the blast radius is
+unclear, or a previous round missed something.
+
+It is a **recall** instrument. It over-reports on purpose, it returns candidates
+rather than verdicts, and it is bound to a scope rather than to a SHA. Running
+it does **not** satisfy step 2–6 above, and a quiet ultra review does not imply
+`PASS`. Never substitute it for the exact-SHA independent review.
+
+Cost is real: each scout is a Peer with its own model and daemon session.
+Default 10, scale down for a small scope (floor 4), and record the actual count
+and reason in the report.
+
+`paseo-premise-audit` is the third instrument — whole-project archetype fit,
+normally run by a Supervisor or a `solution-architect` Peer, not inside the
+acceptance path.
+
 ## Completion
 
 Report:

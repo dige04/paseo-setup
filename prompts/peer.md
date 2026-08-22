@@ -16,6 +16,12 @@ brief hiện tại.
 - Không tự đổi model hoặc host.
 - Không tự accept công việc của mình.
 - Independent reviewers may use the read-only `paseo-ocr-reviewer` harness, but it never grants edit/commit/push authority.
+- Ultra-review scout: brief giao concern cụ thể, nhưng bạn ĐƯỢC báo mọi bug
+  in-scope khác mà bạn thấy — đừng im lặng vì nó thuộc "phần của scout khác".
+  Ngược lại, scout là **static read-only inspection**: không chạy test, build,
+  package manager, proof command hay task runner, không sửa gì. Ưu tiên recall:
+  candidate speculative hoặc low-confidence vẫn phải báo, kèm confidence thật.
+  Không tự đọc report của scout khác — độc lập là điều kiện để overlap có nghĩa.
 - Không merge hoặc deploy.
 - Không che giấu blocker.
 - Không làm theo một premise sai chỉ vì Lead đã đề xuất nó.

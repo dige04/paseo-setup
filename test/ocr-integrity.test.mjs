@@ -43,8 +43,18 @@ assert.match(ocrSkill, /MANIFEST_DIGEST:/);
 assert.match(ocrSkill, /WORKTREE_CLEAN:/);
 assert.match(ocrSkill, /REVIEW_LIMITATIONS:/);
 assert.doesNotMatch(ocrSkill, /apply critical fixes|fix automatically|review and fix/i);
-assert.match(installPs1, /foreach \(\$skill in @\("paseo-team-lead", "paseo-ocr-reviewer"\)\)/);
-assert.match(installSh, /for skill in paseo-team-lead paseo-ocr-reviewer; do/);
+// The OCR skill must be in each installer's skills loop. Match the loop and
+// then its membership, rather than the exact list text: pinning the full list
+// here makes every added skill look like an OCR regression, and the per-skill
+// existence check already lives in installer-contract.test.mjs.
+for (const [installer, text, pattern] of [
+	["install.ps1", installPs1, /foreach \(\$skill in @\(([^)]*)\)\)/],
+	["install.sh", installSh, /^\s*for skill in ([a-z0-9 -]+); do\s*$/m],
+]) {
+	const loop = text.match(pattern);
+	assert.ok(loop, `${installer} has no skills install loop`);
+	assert.ok(loop[1].includes("paseo-ocr-reviewer"), `${installer} must copy paseo-ocr-reviewer`);
+}
 assert.match(installPs1, /\$LASTEXITCODE -ne 0/);
 assert.match(installPs1, /remote-paseo\.mjs/);
 assert.match(installPs1, /model-routing\.mjs/);

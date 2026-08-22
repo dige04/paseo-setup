@@ -10,7 +10,7 @@
 #     policy-core.mts             shared rules
 #     settings.claude-team.json   generated, absolute hook paths
 #     prompts/  scripts/  state/
-#   ~/.claude/skills/paseo-team-lead, paseo-ocr-reviewer
+#   ~/.claude/skills/paseo-team-lead, paseo-ocr-reviewer, paseo-ultra-review, paseo-premise-audit
 #
 # It does NOT touch ~/.claude/settings.json: the hook wiring lives in its own
 # settings file that the Paseo provider passes with --settings, so a plain
@@ -44,6 +44,7 @@ TEAM_SUPPORT_FILES=(
   watchdog.mjs
   team-communication.mjs
   ocr-review.mjs
+  ultra-review-report.mjs
   remote-paseo.mjs
   model-routing.mjs
   team-scripts-path.mjs
@@ -66,7 +67,7 @@ for support_file in "${TEAM_SUPPORT_FILES[@]}"; do
 done
 
 # The policy says what an agent MAY do; the skills say HOW the work is run.
-for skill in paseo-team-lead paseo-ocr-reviewer; do
+for skill in paseo-team-lead paseo-ocr-reviewer paseo-ultra-review paseo-premise-audit; do
   rm -rf "$CLAUDE_SKILLS_DIR/$skill"
   cp -R "$ROLE_PACK_ROOT/skills/$skill" "$CLAUDE_SKILLS_DIR/$skill"
 done
@@ -103,7 +104,7 @@ echo "  runtime  -> $CLAUDE_TEAM_DIR"
 echo "  hooks    -> $CLAUDE_SETTINGS"
 echo "  prompts  -> $CLAUDE_TEAM_DIR/prompts"
 echo "  support  -> $CLAUDE_TEAM_DIR/scripts"
-echo "  skills   -> $CLAUDE_SKILLS_DIR/paseo-team-lead, paseo-ocr-reviewer"
+echo "  skills   -> $CLAUDE_SKILLS_DIR/paseo-team-lead, paseo-ocr-reviewer, paseo-ultra-review, paseo-premise-audit"
 echo ""
 echo "Next steps:"
 echo "  1. Merge config/paseo.providers.claude.example.json into ~/.paseo/config.json,"

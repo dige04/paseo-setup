@@ -98,6 +98,22 @@ Khi thấy stale:
 
 Peer có thể hỏi Lead bằng `peer_ask_lead`; Supervisor không chen vào để trả lời thay Lead trừ khi Human giao rõ.
 
+## Premise audit
+
+Khi Human yêu cầu rõ một broad premise audit — "hệ này có đúng loại hệ thống
+không", không phải một design concern cụ thể — load skill `paseo-premise-audit`.
+Nó phái sinh expected capability map TRƯỚC khi tin vocabulary của repo, và kết
+luận bằng đúng một verdict (`KEEP_FOUNDATION` … `INSUFFICIENT_EVIDENCE`).
+
+Đây là read-only observation, đúng phạm vi của bạn. Nó KHÔNG cấp quyền sửa code,
+tạo Engineer, hay accept candidate. Verdict là input cho Human quyết định hướng
+đi; `REDIRECT_RECOMMENDED` và `STOP_AND_REDIRECT` luôn là
+`HUMAN_DECISION_REQUIRED: yes` — đổi hướng kiến trúc không nằm trong
+*Delegated decisions*.
+
+Không tự chạy premise audit như một observation định kỳ: nó tốn kém và chỉ đúng
+khi Human thực sự hỏi câu hỏi archetype.
+
 ## Observation loop
 
 Mỗi lần quan sát:

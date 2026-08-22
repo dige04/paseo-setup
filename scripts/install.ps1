@@ -27,6 +27,7 @@ $teamSupportFiles = @(
   "watchdog.mjs",
   "team-communication.mjs",
   "ocr-review.mjs",
+  "ultra-review-report.mjs",
   "remote-paseo.mjs",
   "model-routing.mjs",
   "team-scripts-path.mjs"
@@ -45,7 +46,7 @@ foreach ($supportFile in $teamSupportFiles) {
 }
 
 # The policy says what an agent MAY do; the skills say HOW the work is run.
-foreach ($skill in @("paseo-team-lead", "paseo-ocr-reviewer")) {
+foreach ($skill in @("paseo-team-lead", "paseo-ocr-reviewer", "paseo-ultra-review", "paseo-premise-audit")) {
   $dest = Join-Path $claudeSkillsDir $skill
   if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
   Copy-Item -Recurse -Force (Join-Path $RolePackRoot "skills\$skill") $dest
@@ -78,7 +79,7 @@ Write-Host "  runtime  -> $claudeTeamDir"
 Write-Host "  hooks    -> $claudeSettings"
 Write-Host "  prompts  -> $claudePromptDir"
 Write-Host "  support  -> $claudeScriptsDir"
-Write-Host "  skills   -> $claudeSkillsDir\paseo-team-lead, paseo-ocr-reviewer"
+Write-Host "  skills   -> $claudeSkillsDir\paseo-team-lead, paseo-ocr-reviewer, paseo-ultra-review, paseo-premise-audit"
 Write-Host ""
 Write-Host "Next steps:"
 Write-Host "  1. Merge config/paseo.providers.claude.example.json into ~/.paseo/config.json,"

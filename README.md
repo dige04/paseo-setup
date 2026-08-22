@@ -68,6 +68,34 @@ brief; don't message Peers directly.
 
 See [`docs/claude-code.md`](docs/claude-code.md).
 
+## Review instruments
+
+Three skills, three different questions. They compose; none replaces another.
+
+| Skill | Answers | Bound to | Runs as |
+|---|---|---|---|
+| `paseo-ocr-reviewer` | is this candidate acceptable? | one exact SHA | Reviewer Peer |
+| `paseo-ultra-review` | what else might be wrong here? | a scope | Lead + N scout Peers |
+| `paseo-premise-audit` | is this the right kind of system? | whole project | Supervisor / architect Peer |
+
+**OCR review** is the acceptance path: deterministic file selection through
+OpenCodeReview delegation, exact-SHA bound, linked-worktree isolated, fails
+closed. See [`docs/ocr-integration.md`](docs/ocr-integration.md).
+
+**Ultra review** is maximum recall: the Lead dispatches independent read-only
+scouts with deliberately overlapping concerns and consolidates every candidate —
+including speculative ones — into one durable report under `docs/ultrareview/`.
+It over-reports on purpose. It is *not* an acceptance instrument: running it
+does not satisfy the independent review step, and a quiet ultra review does not
+imply `PASS`. Cost is real — each scout is a Peer with its own model session, so
+the default of 10 is scalable down to 4 with the count and reason recorded.
+
+**Premise audit** is the only one allowed to conclude the code is excellent and
+still wrong. It derives the expected capability map before trusting repository
+vocabulary, and returns one verdict from `KEEP_FOUNDATION` to
+`STOP_AND_REDIRECT`. Domain profiles ship for realtime-multiplayer and
+agent-governance systems.
+
 ## Governance graph
 
 Who governs whom, who owns a writable scope, and which bounds apply — as a
