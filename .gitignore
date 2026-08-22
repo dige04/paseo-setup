@@ -11,3 +11,6 @@ node_modules/
 # cluster-routing.local.json, so they are not listed separately.
 *.local.json
 auth.json
+
+# Local-only notes, kept out of version control.
+docs/*.local.md
