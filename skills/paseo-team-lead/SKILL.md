@@ -321,9 +321,10 @@ Cost is real: each scout is a Peer with its own model and daemon session.
 Default 10, scale down for a small scope (floor 4), and record the actual count
 and reason in the report.
 
-`paseo-premise-audit` is the third instrument — whole-project archetype fit,
-normally run by a Supervisor or a `solution-architect` Peer, not inside the
-acceptance path.
+`paseo-premise-audit` is the third instrument — whole-project archetype fit. It
+runs as a read-only `solution-architect` Peer you brief, not inside the
+acceptance path. A Supervisor may commission it but cannot run it: it has no
+shell authority beyond the watchdog.
 
 ## Completion
 

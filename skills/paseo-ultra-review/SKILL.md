@@ -36,9 +36,36 @@ change.
 | Scout Peer | read, search, reason, report candidates | edit, stage, format, commit, run tests/builds/package managers, create agents |
 
 Every scout brief is `MODE: read-only`, `EDIT_AUTHORITY: denied`,
-`COMMIT_AUTHORITY: denied`, `PUSH_TASK_BRANCH_AUTHORITY: denied`. The extension
-enforces this fail-closed; the brief must still state it, because a brief that
-relies on the extension to say no is a brief that says nothing.
+`COMMIT_AUTHORITY: denied`, `PUSH_TASK_BRANCH_AUTHORITY: denied`.
+
+### Which scouts are actually enforced read-only
+
+The V3 brief is a **contract**, not a mechanism. It is enforced only for scouts
+on a `claude-peer` provider, where the `PreToolUse` hook parses the brief and
+denies the tool call. Know which kind you dispatched:
+
+| Scout provider | Read-only enforced by | Failure mode |
+|---|---|---|
+| `claude-peer` | `PreToolUse` hook, fail-closed, holds under `bypassPermissions` | a write is denied |
+| `agy` (ACP) | **nothing in this pack** — the hook is passive without `PASEO_CLAUDE_ROLE` | a write succeeds |
+
+For an `agy` scout the ACP session mode is the only bound available, and the
+closest fit is `plan`. Even that is a *disposition*, not a wall: agy exposes
+`default`, `accept-edits`, `plan`, and `dangerously-skip-permissions`, and none
+of them is a hard read-only. **Never dispatch an `agy` scout with
+`accept-edits` or `dangerously-skip-permissions`** — a scout that edits while
+nine others read the same tree corrupts the evidence for the whole round, and
+you will not find out until consolidation.
+
+Prefer `claude-peer` scouts when the review scope is a repository you care
+about. Reach for `agy` scouts to add model diversity — a genuinely different
+model finds genuinely different bugs, which is the point of overlap — and
+accept that their read-only status rests on the mode plus the prompt. Say which
+providers you used in the Scout Roster so a reader can weight the guarantee.
+
+State the restrictions in the brief regardless of provider. For `claude-peer`
+the brief is what the hook parses; for `agy` the brief is the only thing there
+is.
 
 Scouts perform **static read-only inspection only**. No tests, builds, package
 managers, proof commands, or task runners — a scout that runs the suite is
@@ -155,6 +182,14 @@ concern is genuinely deep (concurrency, ownership, lifecycle, security design)
 and record why in the roster. Resolve and verify every route through the normal
 `paseo-team-lead` routing cycle; ultra review grants no routing shortcut.
 
+**Model diversity is worth more here than in any other instrument.** Ten scouts
+on one model share that model's blind spots, so overlap re-confirms what it
+already sees and misses the same things ten times. Mixing providers — some
+`claude-peer`, some `agy` — buys genuinely independent traces. Weigh that
+against the enforcement table above: an `agy` scout's read-only status rests on
+its ACP mode and its prompt, not on the hook. Record each scout's provider in
+the roster so the guarantee is visible rather than assumed.
+
 ## Scout packet
 
 Each scout's V3 brief task body must contain:
@@ -258,23 +293,31 @@ Replace every `TODO`. If scouts submitted no candidates, write
 
 The report is the only workspace artifact this skill may create.
 
-### Write authority — check this before dispatching scouts
+### Who writes the report — check before dispatching scouts
 
-Consolidation edits the report file, and the Lead's `Write`/`Edit` tools are
-denied by default (`PASEO_TEAM_LEAD_WRITE`). The scaffold itself runs through
-Bash and will succeed, so the failure lands *after* ten scouts have already been
-paid for: a scaffold full of `TODO` that cannot be filled in.
+Consolidation edits the report file, so establish **before** spending scouts
+that someone can actually write it. Two working arrangements:
 
-Confirm one of these **before** dispatching:
+**A. A consolidator Peer writes it (default, no Lead write needed).** After the
+scouts return, brief one more Peer with `MODE: write`, `EDIT_AUTHORITY:
+allowed`, `COMMIT_AUTHORITY: denied`, and `OWNED_SCOPE` set to the single report
+path the scaffold printed. Hand it the scout reports and the consolidation rules
+below. This keeps the Lead read-only, which is the pack's default posture, and
+keeps the write bounded to one file by an owner that is not also the dispatcher.
 
-- `PASEO_TEAM_LEAD_WRITE=1` is set for this Lead and the Workspace Protocol
-  permits the coordination artifact, or
-- the Workspace Protocol grants `LEAD_WRITE_POLICY: allowed`.
+**B. The Lead writes it directly.** Requires `PASEO_TEAM_LEAD_WRITE=1` on the
+Lead provider, or `LEAD_WRITE_POLICY: allowed` in the Workspace Protocol.
+Simpler, but it grants the Lead `Write`/`Edit` on *every* file for the whole
+session, not just the report — the hook has no per-path bound.
 
-If neither holds, stop and report `BLOCKED: LEAD_WRITE_UNAVAILABLE` rather than
-dispatching. Do not route around the gate by shelling out to write the file —
-the gate is the mechanism, and defeating it from Bash makes every other write
-restriction in the pack advisory.
+The trap either way: the scaffold runs through Bash and **succeeds**, so an
+unresolved write path fails only at consolidation, after every scout has been
+paid for. Verify the arrangement first; if neither holds, report
+`BLOCKED: REPORT_WRITER_UNAVAILABLE` instead of dispatching.
+
+Do not route around a denied write by shelling out to create the file. The gate
+is the mechanism, and defeating it from Bash makes every other write restriction
+in the pack advisory.
 
 ## Consolidation
 

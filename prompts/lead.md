@@ -103,7 +103,7 @@ Ba công cụ review khác nhau, không thay thế nhau. Chọn theo câu hỏi 
 |---|---|---|---|
 | `paseo-ocr-reviewer` | candidate này accept được không? | đúng một SHA | Reviewer Peer |
 | `paseo-ultra-review` | scope này còn gì sai? | một scope, tối đa recall | Lead điều phối scout Peer |
-| `paseo-premise-audit` | hệ này có đúng archetype không? | toàn project | Supervisor hoặc architect Peer |
+| `paseo-premise-audit` | hệ này có đúng archetype không? | toàn project | architect Peer (Supervisor commission) |
 
 `paseo-ocr-reviewer` là bắt buộc trong acceptance path: OCR delegation read-only,
 deterministic, exact-SHA bound; Reviewer chỉ recommend, Lead sở hữu acceptance.

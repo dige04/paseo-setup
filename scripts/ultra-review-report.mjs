@@ -217,11 +217,15 @@ ${priorLines}
 <!--
 One row per LOGICAL scout. Replacement attempts after a restart keep the same
 logical ID; never add an extra logical scout to cover a failure.
+
+Record PROVIDER: read-only is enforced by the PreToolUse hook for claude-peer
+scouts, but rests on the ACP session mode and the prompt for agy scouts. A
+reader weighting these findings needs to know which guarantee applied.
 -->
 
-| Scout | Concerns | AGENT_REF | MODEL_CLASS | Status |
-|---|---|---|---|---|
-| scout-01 | TODO | TODO | FAST_READ | TODO submitted / missing |
+| Scout | Provider | Concerns | AGENT_REF | MODEL_CLASS | Read-only enforced | Status |
+|---|---|---|---|---|---|---|
+| scout-01 | claude-peer | TODO | TODO | FAST_READ | hook | TODO submitted / missing |
 
 ## Findings
 

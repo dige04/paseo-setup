@@ -114,19 +114,47 @@ SHA-bound and reports an empty discovery set.
 a scout that never returned reads as a stated limitation rather than as
 coverage.
 
-### Write authority, checked before dispatch
+### Who writes the report, settled before dispatch
 
 The scaffold runs through Bash, which the Lead holds unrestricted — but filling
-in the report uses `Write`/`Edit`, which are denied for the Lead unless
-`PASEO_TEAM_LEAD_WRITE=1` or the Workspace Protocol grants
-`LEAD_WRITE_POLICY: allowed`.
+in the report needs `Write`/`Edit`, which the Lead does not have by default.
+Two arrangements:
 
-Left unchecked, the failure lands after ten scouts have already been paid for:
-the scaffold exists, the candidates are in hand, and the file cannot be
-completed. The skill requires confirming write authority *before* dispatching
-and reporting `BLOCKED: LEAD_WRITE_UNAVAILABLE` otherwise. Shelling out to write
-the file instead is not an option — defeating the gate from Bash would make
-every other write restriction in the pack advisory.
+- **A consolidator Peer** with `MODE: write` and `OWNED_SCOPE` set to the one
+  report path. Keeps the Lead read-only and bounds the write to a single file
+  owned by someone who is not the dispatcher. This is the default.
+- **The Lead directly**, which needs `PASEO_TEAM_LEAD_WRITE=1` or
+  `LEAD_WRITE_POLICY: allowed`. Simpler, but it grants the Lead write on every
+  file for the session — the hook has no per-path bound.
+
+Either way, settle it *before* dispatching. The scaffold succeeds regardless, so
+an unresolved write path fails at consolidation — after every scout has been
+paid for. Shelling out to create the file is not the escape hatch: defeating the
+gate from Bash would make every other write restriction in the pack advisory.
+
+### Read-only is enforced for some scouts and merely asked of others
+
+The V3 brief is a contract; the `PreToolUse` hook is the mechanism. The hook is
+passive unless `PASEO_CLAUDE_ROLE` is set, which the `claude-*` providers set
+and other providers do not.
+
+| Scout provider | Read-only enforced by | If it tries to write |
+|---|---|---|
+| `claude-peer` | hook, fail-closed, holds under `bypassPermissions` | denied |
+| `agy` (ACP) | nothing in this pack | succeeds |
+
+For an `agy` scout the ACP session mode is the only available bound, and `plan`
+is the closest fit — agy offers `default`, `accept-edits`, `plan`, and
+`dangerously-skip-permissions`, none of them a hard read-only. Never dispatch an
+`agy` scout with `accept-edits` or `dangerously-skip-permissions`: one scout
+editing while nine read the same tree corrupts the round's evidence, and it
+surfaces only at consolidation.
+
+The reason to use `agy` scouts anyway is **model diversity**, which matters more
+here than in any other instrument. Ten scouts on one model share its blind
+spots, so the overlap re-confirms what that model already sees. A different
+model finds different bugs. The Scout Roster records each scout's provider and
+which guarantee applied, so a reader can weight the findings.
 
 ### Restart recovery
 
