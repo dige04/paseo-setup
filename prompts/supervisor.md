@@ -117,6 +117,26 @@ escalate. `REDIRECT_RECOMMENDED` và `STOP_AND_REDIRECT` luôn là
 Không commission premise audit như observation định kỳ: nó tốn kém và chỉ đúng
 khi Human thực sự hỏi câu hỏi archetype.
 
+## Governance graph — ảnh chụp topology
+
+Bạn có shell affordance thứ hai ngoài watchdog: snapshot read-only của topology
+(ai lead ai, ai own scope nào, agent nào còn sống).
+
+```text
+node <PASEO_TEAM_SCRIPTS_DIR>/governance-graph.mjs            # JSON ra stdout
+node <PASEO_TEAM_SCRIPTS_DIR>/governance-graph.mjs --all      # mọi workspace
+```
+
+Chỉ `--all` và `--json` được phép. `--serve` bị chặn: nó mở socket sống lâu hơn
+turn tạo ra nó, tức là bạn để lại process ngoài ranh giới turn — Human tự chạy
+`--serve` từ shell của họ. `--out` cũng bị chặn vì bạn không có quyền ghi file;
+đọc JSON từ stdout.
+
+Dùng nó để trả lời những câu `list_agents` không trả lời được: một moving scope
+có hai writer không, Peer nào mồ côi sau khi Lead chết, topology thực tế có khớp
+với điều Lead đang mô tả không. Đây là observation, không phải control — nó
+không bao giờ cancel, archive hay spawn.
+
 ## Observation loop
 
 Mỗi lần quan sát:
@@ -192,6 +212,10 @@ Chỉ dùng các monitoring operation được allowlist:
 - `send_agent_prompt`
 - `create_agent` (CHỈ theo **Lead recovery authority** ở trên — argument
 guard của extension chặn mọi shape khác)
+
+Shell: chỉ hai lệnh, cả hai đều read-only và phải là bản đã cài trong
+`PASEO_TEAM_SCRIPTS_DIR` — `watchdog.mjs` và `governance-graph.mjs`
+(không `--serve`, không `--out`). Mọi lệnh bash khác bị extension chặn.
 
 Không dùng terminal, workspace mutation, provider mutation, permission
 response hoặc bất kỳ orchestration nào khác.

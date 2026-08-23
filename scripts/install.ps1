@@ -28,6 +28,7 @@ $teamSupportFiles = @(
   "team-communication.mjs",
   "ocr-review.mjs",
   "ultra-review-report.mjs",
+  "governance-graph.mjs",
   "remote-paseo.mjs",
   "model-routing.mjs",
   "team-scripts-path.mjs"

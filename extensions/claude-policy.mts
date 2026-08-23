@@ -148,6 +148,27 @@ export function isExactWatchdogCommand(command: string, scriptsDir?: string): bo
 }
 
 /**
+ * Governance graph: read-only topology snapshot (who leads whom, who owns what
+ * scope). Observing topology is the Supervisor's job, so it is the second
+ * shell command the Supervisor may run.
+ *
+ * The flag allowlist is closed, not open. `--serve` is deliberately absent:
+ * binding a listening socket outlives the turn that started it and is a
+ * different class of authority from reading state — an agent that can leave a
+ * server running has escaped the turn boundary the rest of this policy relies
+ * on. A human runs `--serve` from their own shell.
+ *
+ * `--out <path>` is also absent: it writes a file, and the Supervisor has no
+ * write authority. Read the JSON from stdout instead.
+ */
+const GOVERNANCE_GRAPH_SHAPE_RE =
+	/^\s*node\s+(?:"([^"]+)"|'([^']+)'|([^\s'"]+))((?:\s+--(?:all|json))*)\s*$/;
+
+export function isExactGovernanceGraphCommand(command: string, scriptsDir?: string): boolean {
+	return isSanctionedScript(command, GOVERNANCE_GRAPH_SHAPE_RE, scriptsDir, "governance-graph.mjs");
+}
+
+/**
  * Peers must not drive Claude Code from the shell either — spawning a nested
  * `claude` is the same bypass class as spawning a nested `paseo`.
  *
@@ -277,9 +298,9 @@ export function claudeToolBlockReason(call: ClaudeToolCall): string | null {
 	if (CLAUDE_SHELL_TOOLS.includes(toolName)) {
 		const command = bashCommand(toolInput);
 		if (role === "supervisor") {
-			return isExactWatchdogCommand(command, call.scriptsDir)
-				? null
-				: "Supervisor has no shell authority beyond the read-only watchdog. Send an observation to the Lead instead.";
+			if (isExactWatchdogCommand(command, call.scriptsDir)) return null;
+			if (isExactGovernanceGraphCommand(command, call.scriptsDir)) return null;
+			return "Supervisor shell authority is limited to the read-only watchdog and governance-graph snapshot (no --serve, no --out). Send an observation to the Lead instead.";
 		}
 		if (role === "peer") {
 			if (isExactAskLeadCommand(command, call.scriptsDir)) return null;

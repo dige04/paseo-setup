@@ -285,6 +285,38 @@ assert.ok(
   "a supervisor's watchdog affordance is the installed script, not any file named like it",
 );
 
+// Governance graph: the Supervisor's second shell affordance. Observing
+// topology is its job, so a read-only snapshot is allowed — but the flag
+// allowlist is CLOSED. --serve binds a socket that outlives the turn, and
+// --out writes a file the Supervisor has no authority to write.
+{
+  const graph = `node ${scriptsDir}/governance-graph.mjs`;
+  const allows = (command) =>
+    denial(preToolUse("gov-probe", "Bash", { command }, "supervisor")) === null;
+
+  for (const permitted of [graph, `${graph} --all`, `${graph} --json`, `${graph} --all --json`]) {
+    assert.ok(allows(permitted), `supervisor must be able to snapshot topology: ${permitted}`);
+  }
+  for (const refused of [
+    `${graph} --serve`,
+    `${graph} --serve 7788`,
+    `${graph} --out /tmp/graph.json`,
+    `${graph} --all && rm -rf /tmp/x`,
+    "node ./governance-graph.mjs",
+    "node /tmp/evil/governance-graph.mjs",
+    `node ${scriptsDir}/../../evil/governance-graph.mjs`,
+  ]) {
+    assert.ok(!allows(refused), `must not pass the governance-graph allowlist: ${refused}`);
+  }
+  // A Peer holds general bash, so it can run this like any script — the point
+  // of the allowlist is what it grants the SUPERVISOR, not what it denies a Peer.
+  assert.equal(
+    denial(preToolUse("lead-graph", "Bash", { command: `${graph} --serve` }, "lead")),
+    null,
+    "the Lead keeps general shell, including --serve",
+  );
+}
+
 // create_agent is lead-recovery only, and the args prove it.
 assert.ok(denial(preToolUse("sup", "mcp__paseo__create_agent", {}, "supervisor")));
 assert.ok(
