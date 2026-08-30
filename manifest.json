@@ -1,8 +1,8 @@
 {
   "schema": "paseo.team-policy-digest/v1",
   "version": "0.1.0",
-  "policyDigest": "sha256:6d02e70eff3088edc81f2d9648925a50ffd779f929d607a62ebc0aa4f30982a3",
-  "fileCount": 43,
+  "policyDigest": "sha256:5d37a2cb85b240d386376d7ac15da86aac9ec9305a76b883a4ac922e04c90a73",
+  "fileCount": 44,
   "files": {
     "config/skill-admission.json": "sha256:cfe6b8828453f70a47aba98eeb33022b2097129928c31ced9dcb842c253ff29f",
     "docs/anti-patterns.md": "sha256:09c97e580de5a4c915d56559485b25ae54311598dd7b936ed927f6ce9ec4286d",
@@ -39,6 +39,7 @@
     "skills/paseo-premise-audit/references/structural-antipatterns.md": "sha256:bee387e0e4ab3ea2f103d2f5d2702219ea00648d4e699ccc5eb835024b6c5fdc",
     "skills/paseo-team-lead/SKILL.md": "sha256:53fce2687a8a72fcad0060461fe1759de6d64a0a148612eb0070b85b62e9b50e",
     "skills/paseo-ultra-review/SKILL.md": "sha256:32547ab938e15d9dcc63edf4ea5e5b460f9a9d7138036cf231ce93726cca68f8",
+    "skills/paseo-ultra-review/references/probe-omp-toolsurface-26-08-31.md": "sha256:7fa4b2e7a048fe16693b96609ae4e957d0a37da42be14e1701675ea277bb1018",
     "skills/paseo-ultra-review/references/proof-debt-catalog.md": "sha256:4b1cb8a85502bd139f744488a85d55e86316f20ed12c29d55c32286b76ed9afd",
     "skills/paseo-ultra-review/references/structural-antipatterns.md": "sha256:bee387e0e4ab3ea2f103d2f5d2702219ea00648d4e699ccc5eb835024b6c5fdc",
     "skills/repo-refresh/SKILL.md": "sha256:33efa43368c3d36712f4cbf96c2a3c1a5ee1a6f3229e99a9fa6ca2a503e78a37",
