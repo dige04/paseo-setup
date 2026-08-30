@@ -52,6 +52,9 @@ TEAM_SUPPORT_FILES=(
   remote-paseo.mjs
   model-routing.mjs
   team-scripts-path.mjs
+  eod-digest.mjs
+  preflight.mjs
+  check-report-gates.mjs
 )
 
 mkdir -p "$CLAUDE_TEAM_DIR/prompts" "$CLAUDE_TEAM_DIR/scripts" "$CLAUDE_TEAM_DIR/state" "$CLAUDE_SKILLS_DIR"
@@ -103,26 +106,50 @@ if command -v git >/dev/null 2>&1; then
   PACK_VERSION="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version' "$CLAUDE_TEAM_DIR/manifest.json")"
   PACK_DIGEST="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).policyDigest' "$CLAUDE_TEAM_DIR/manifest.json")"
   # state/ is runtime-mutable (mode 700); it must never enter config history.
-  printf 'state/\n' > "$CLAUDE_TEAM_DIR/.gitignore"
-  if [[ -d "$CLAUDE_TEAM_DIR/.git" ]]; then
+  # Append-if-absent: a user's pre-existing .gitignore is their file, never
+  # truncated (pack-ship F008).
+  if [[ ! -f "$CLAUDE_TEAM_DIR/.gitignore" ]] || ! grep -qx 'state/' "$CLAUDE_TEAM_DIR/.gitignore"; then
+    printf 'state/\n' >> "$CLAUDE_TEAM_DIR/.gitignore"
+  fi
+  VERSIONING_REPO="own"
+  if [[ -e "$CLAUDE_TEAM_DIR/.git" ]]; then
+    if [[ ! -d "$CLAUDE_TEAM_DIR/.git" ]]; then
+      # .git as a FILE means a linked worktree or submodule of some OTHER
+      # repository. Committing there would land installer-authored commits in
+      # the user's repo — foreign, hands off (pack-ship F008).
+      VERSIONING_REPO="foreign"
+    else
+      TOPLEVEL="$(git -C "$CLAUDE_TEAM_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+      if [[ "$(cd "$CLAUDE_TEAM_DIR" && pwd -P)" != "$(cd "$TOPLEVEL" 2>/dev/null && pwd -P)" ]]; then
+        VERSIONING_REPO="foreign"
+      fi
+    fi
     COMMIT_MESSAGE="refresh $PACK_VERSION $PACK_DIGEST"
   else
-    # [[ -d .git ]] above is an exact-directory test on purpose: a deploy dir
-    # nested inside some parent repo must still get its OWN repo, not commits
-    # into the parent.
+    # No .git at all: the deploy dir gets its OWN repo, even nested inside
+    # some parent checkout — that is what keeps routing changes revertable.
     git -C "$CLAUDE_TEAM_DIR" init --quiet
     COMMIT_MESSAGE="install $PACK_VERSION $PACK_DIGEST"
   fi
-  git -C "$CLAUDE_TEAM_DIR" add -A
-  # Pinned identity + signing off so the commit succeeds deterministically on
-  # hosts with no global git config; --allow-empty keeps a no-change refresh
-  # auditable instead of failing the install.
-  git -C "$CLAUDE_TEAM_DIR" \
-    -c user.name="paseo-claude-team installer" \
-    -c user.email="installer@paseo-claude-team.invalid" \
-    -c commit.gpgsign=false \
-    commit --quiet --allow-empty -m "$COMMIT_MESSAGE"
-  echo "[paseo-claude-team] deployed-config commit: $COMMIT_MESSAGE"
+  if [[ "$VERSIONING_REPO" == "foreign" ]]; then
+    echo "[paseo-claude-team] WARNING: $CLAUDE_TEAM_DIR belongs to another repository (worktree/submodule/nested checkout) — skipping deployed-config versioning; managing that history is yours" >&2
+  else
+    # Stage only installer-owned paths — never a user's own files in the
+    # deploy dir (pack-ship F008: no blanket add -A).
+    git -C "$CLAUDE_TEAM_DIR" add -A -- \
+      prompts scripts manifest.json .gitignore \
+      claude-team-hook.mjs claude-policy.mts policy-core.mts \
+      settings.claude-team.json
+    # Pinned identity + signing off so the commit succeeds deterministically on
+    # hosts with no global git config; --allow-empty keeps a no-change refresh
+    # auditable instead of failing the install.
+    git -C "$CLAUDE_TEAM_DIR" \
+      -c user.name="paseo-claude-team installer" \
+      -c user.email="installer@paseo-claude-team.invalid" \
+      -c commit.gpgsign=false \
+      commit --quiet --allow-empty -m "$COMMIT_MESSAGE"
+    echo "[paseo-claude-team] deployed-config commit: $COMMIT_MESSAGE"
+  fi
 else
   echo "[paseo-claude-team] WARNING: git not found — deployed config at $CLAUDE_TEAM_DIR is unversioned; routing changes are not revertable" >&2
 fi

@@ -17,6 +17,10 @@
         "description": "Observation-only governance plane. Never edits product code.",
         "models": [
           {
+            "id": "claude-haiku-4-5",
+            "label": "Haiku 4.5"
+          },
+          {
             "id": "claude-sonnet-5",
             "label": "Sonnet 5"
           },

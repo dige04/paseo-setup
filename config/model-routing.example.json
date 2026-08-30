@@ -19,7 +19,7 @@
       "thinking": "medium"
     },
     "REASONING_HIGH": {
-      "paseoProvider": "claude-lead",
+      "paseoProvider": "claude-peer",
       "model": "claude-opus-5",
       "thinking": "high"
     },

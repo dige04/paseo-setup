@@ -9,17 +9,25 @@
  * Observation-only, exactly like watchdog.mjs: it lists and inspects, and
  * never cancels, archives, spawns or edits anything.
  *
- * Two field-shape facts drive the code (verified against Paseo 0.4.0):
+ * Three field-shape facts drive the code (re-measured 2026-08-31, Paseo 0.6.x):
  *   - `paseo ls --json` returns the SAME global list as `ls -g --json`; there
  *     is no server-side workspace scope, so scoping is done here on Cwd.
  *   - `ls` keys are lowercase, `inspect` keys are PascalCase, and only
  *     `inspect` carries ParentAgentId — which is why edges cost one inspect
  *     per agent, bounded below like the watchdog bounds its own fan-out.
+ *   - the SAME directory arrives spelled `~/x` from `ls` and `/Users/u/x` from
+ *     `inspect`. Scope identity is therefore the realpath, resolved once at
+ *     ingest (lib-common resolveCanonicalCwds), never the string Paseo handed
+ *     us. Raw spellings survive for display only.
  *
- * Role comes from the provider name alone. `inspect` exposes no Labels field,
- * so there is no second source; anything unrecognized renders as `unknown`
- * with no delegation edge. In a governance view a confident wrong edge is
- * worse than a blank one.
+ * Role comes from the provider name alone, and that is a KNOWN GAP, not a
+ * design: `inspect` exposes no Labels field, so the graph reads roles off the
+ * provider suffix that only the pack's own claude-* providers carry. (A second
+ * source does exist — `paseo ls --label k=v` filters server-side — but which
+ * label carries a role is exactly the taxonomy question F015 owns, and wiring
+ * a guess here would make the graph confidently wrong.) Anything unrecognized
+ * renders as `unknown` with no delegation edge. In a governance view a
+ * confident wrong edge is worse than a blank one.
  *
  *   node scripts/governance-graph.mjs                 # scope: cwd, to stdout
  *   node scripts/governance-graph.mjs --all --out g.json
@@ -32,7 +40,13 @@ import { createServer } from "node:http";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isEntrypoint, resolvePaseoExec } from "./lib-common.mjs";
+import {
+  isEntrypoint,
+  leadWriteEnabled,
+  normalizePaseoCwd,
+  resolveCanonicalCwds,
+  resolvePaseoExec,
+} from "./lib-common.mjs";
 import { retryWithBackoff } from "./reliability.mjs";
 import { runPaseoJson } from "./watchdog.mjs";
 
@@ -82,11 +96,79 @@ export function roleFromProvider(provider) {
   return "unknown";
 }
 
-/** Normalize one agent across the two casings Paseo uses. */
-export function normalizeAgent(listed, detail) {
+/**
+ * The provider WITHOUT its role suffix: `claude-peer` and `claude-lead` are
+ * both the `claude` harness and publish the same mode vocabulary, while `omp`
+ * publishes a different one that happens to reuse the token "write".
+ */
+export function providerFamily(provider) {
+  const name = String(provider ?? "").toLowerCase().split("/")[0] ?? "";
+  for (const [suffix] of ROLE_SUFFIXES) {
+    if (name.endsWith(`-${suffix}`)) return name.slice(0, -(suffix.length + 1));
+    if (name === suffix) return "";
+  }
+  return name;
+}
+
+/**
+ * Providers whose writes this pack actually bounds. The PreToolUse hook parses
+ * the V3 brief and denies the tool call — it holds even under
+ * `bypassPermissions` — and it is armed by `PASEO_CLAUDE_ROLE`, which only
+ * these three providers set (config/paseo.providers.claude.example.json).
+ */
+export const PACK_ENFORCED_PROVIDERS = Object.freeze([
+  "claude-supervisor",
+  "claude-lead",
+  "claude-peer",
+]);
+
+/**
+ * Provider families documented as bounded by prompt + session mode ONLY — "the
+ * hook is passive without PASEO_CLAUDE_ROLE" (skills/paseo-ultra-review/
+ * SKILL.md, docs/review-instruments.md). For these seats the Mode really is
+ * the only authority signal in existence, so posture means something.
+ * `codex` is here on the same general rule: it is not a claude-* provider, so
+ * nothing this pack ships can deny its writes.
+ */
+export const UNENFORCED_PROVIDER_FAMILIES = Object.freeze(["agy", "omp", "codex"]);
+
+/**
+ * What, if anything, bounds this seat's writes — the question "what does Mode
+ * mean here?" is unanswerable without it.
+ *
+ * FOR A PACK-ENFORCED SEAT, MODE IS NOT WRITE AUTHORITY, in either direction.
+ * The hook decides from a brief the graph cannot read, so `bypassPermissions`
+ * on a claude-peer is not evidence of a writer and `plan` is not evidence of a
+ * reader. Reading it as authority is what made A1 fire daily on this repo.
+ *
+ * Everything else — bare `claude`, `pi-*`, `grok`, `cursor`, anything new — is
+ * `unknown`: not enforced, not proven unenforced. Unknown never passes and,
+ * per the pack-ship ruling, never manufactures a violation either.
+ */
+export function enforcementClass(provider) {
+  const name = String(provider ?? "").toLowerCase().split("/")[0] ?? "";
+  if (PACK_ENFORCED_PROVIDERS.includes(name)) return "pack-enforced";
+  if (UNENFORCED_PROVIDER_FAMILIES.includes(providerFamily(name))) return "unenforced";
+  return "unknown";
+}
+
+/**
+ * Normalize one agent across the two casings Paseo uses.
+ *
+ * `canonicalMap` is the ingest-time realpath table (lib-common
+ * resolveCanonicalCwds), keyed by the tilde-expanded spelling. A cwd that
+ * could not be resolved yields `canonicalCwd: null` PLUS the resolve error:
+ * null is "cannot verify", never "somewhere else" and never the raw string
+ * quietly promoted back into an identity.
+ */
+export function normalizeAgent(listed, detail, canonicalMap = null) {
   const d = detail ?? {};
   const provider = d.Provider ?? String(listed.provider ?? "").split("/")[0] ?? "";
   const model = d.Model ?? String(listed.provider ?? "").split("/").slice(1).join("/");
+  const cwd = normalizePaseoCwd(d.Cwd ?? listed.cwd ?? "");
+  const canonicalEntry = cwd ? canonicalMap?.get(cwd) : undefined;
+  const availableModes = Array.isArray(d.AvailableModes) ? d.AvailableModes : [];
+  const mode = d.Mode ?? null;
   return {
     id: listed.id ?? d.Id,
     shortId: listed.shortId ?? String(listed.id ?? d.Id ?? "").slice(0, 7),
@@ -94,9 +176,16 @@ export function normalizeAgent(listed, detail) {
     provider,
     model,
     role: roleFromProvider(provider),
+    enforcement: enforcementClass(provider),
     status: String(d.Status ?? listed.status ?? "unknown").toLowerCase(),
-    mode: d.Mode ?? null,
-    cwd: d.Cwd ?? listed.cwd ?? "",
+    mode,
+    // The agent's OWN label for the mode it is in, so an unclassified mode is
+    // reported as the daemon names it instead of as a bare token.
+    modeLabel: availableModes.find((m) => m?.id === mode)?.label ?? null,
+    availableModes,
+    cwd,
+    canonicalCwd: canonicalEntry?.canonical ?? null,
+    cwdError: cwd && !canonicalEntry?.canonical ? (canonicalEntry?.error ?? "cwd was never canonicalized") : null,
     worktree: d.Worktree ?? null,
     parentAgentId: d.ParentAgentId ?? null,
     pendingPermissions: d.PendingPermissions ?? [],
@@ -113,16 +202,23 @@ export function markStale(agent, { now = Date.now(), staleAfterMs = DEFAULT_STAL
   return { ...agent, ageMs, stale: ageMs !== null && ageMs >= staleAfterMs };
 }
 
-/** Expand `~` so a --cwd filter can be compared against Paseo's own output. */
-function expandHome(p) {
-  if (!p) return p;
-  return p.startsWith("~") ? join(process.env.HOME ?? "", p.slice(1)) : p;
-}
-
-export function inScope(agent, { all, cwd }) {
+/**
+ * Scope membership on CANONICAL identity when both sides have one.
+ *
+ * `scopeCanonical` is the realpath of the requested scope, resolved once by
+ * the caller. When either side could not be canonicalized the comparison falls
+ * back to the lexical spelling — that is a weaker answer, and collectGraph
+ * reports every agent it had to decide that way rather than letting an
+ * unresolvable path disappear silently.
+ */
+export function inScope(agent, { all, cwd, scopeCanonical = null }) {
   if (all) return true;
-  if (!cwd) return true;
-  return resolve(expandHome(agent.cwd || "")) === resolve(expandHome(cwd));
+  if (!cwd && !scopeCanonical) return true;
+  if (agent.canonicalCwd && scopeCanonical) return agent.canonicalCwd === scopeCanonical;
+  // Lexical on BOTH sides or not at all: comparing a raw agent path against a
+  // canonical scope would mix the two identity domains in the one branch that
+  // exists precisely because a canonical was unavailable.
+  return resolve(normalizePaseoCwd(agent.cwd || "")) === resolve(normalizePaseoCwd(cwd || ""));
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +233,10 @@ function policySummary() {
     supervisor: "observe · no write · no orchestration",
     lead: "orchestrate · delegate · accept",
     peer: "one bounded scope · authority from the current V3 brief only",
-    leadWrite: process.env.PASEO_TEAM_LEAD_WRITE ? "enabled" : "disabled",
+    // COLLECTOR-LOCAL, and labelled as such everywhere it is printed: this is
+    // the env of the process drawing the graph, not of any inspected lead. The
+    // shared predicate is the fix for a truthy check that read "0" as enabled.
+    leadWrite: leadWriteEnabled() ? "enabled" : "disabled",
   };
 }
 
@@ -171,7 +270,7 @@ export function buildGraph(agents, { daemon = {}, generatedAt, scope } = {}) {
     data: {
       kind: "RUN POLICY",
       title: "paseo-team role pack",
-      detail: `lead write: ${policySummary().leadWrite} · V3 brief is the only grant`,
+      detail: `lead write (collector-local): ${policySummary().leadWrite} · V3 brief is the only grant`,
       tone: "ok",
       policy: policySummary(),
     },
@@ -206,10 +305,16 @@ export function buildGraph(agents, { daemon = {}, generatedAt, scope } = {}) {
               : `${agent.status}${agent.stale ? " · stale?" : ""} · ${agent.provider}${agent.model ? `/${agent.model}` : ""}`,
           role: agent.role,
           status: agent.status,
+          provider: agent.provider,
+          enforcement: agent.enforcement ?? enforcementClass(agent.provider),
           mode: agent.mode,
+          modeLabel: agent.modeLabel ?? null,
           stale: Boolean(agent.stale),
           pending: (agent.pendingPermissions ?? []).length,
+          // Raw spelling for the human; canonical identity for every check.
           cwd: agent.cwd,
+          canonicalCwd: agent.canonicalCwd ?? null,
+          cwdError: agent.cwdError ?? null,
         },
       });
     });
@@ -245,10 +350,17 @@ export function buildGraph(agents, { daemon = {}, generatedAt, scope } = {}) {
     });
   }
 
-  // checkpoints — one workspace node per distinct cwd the peers actually touch.
-  const workspaces = [...new Set(agents.map((a) => a.cwd).filter(Boolean))];
-  workspaces.forEach((cwd, i) => {
-    const id = `workspace:${cwd}`;
+  // checkpoints — one workspace node per distinct DIRECTORY. Keyed on the
+  // canonical path, so `~/x` and `/Users/u/x` are one node and not two; an
+  // unresolvable cwd keeps its raw spelling as a key and says so, because
+  // merging it into some other node would be a guess.
+  const workspaceKey = (a) => a.canonicalCwd ?? (a.cwd ? `unresolved:${a.cwd}` : "");
+  const workspaces = [...new Set(agents.map(workspaceKey).filter(Boolean))];
+  workspaces.forEach((key, i) => {
+    const members = agents.filter((x) => workspaceKey(x) === key);
+    const resolved = members[0]?.canonicalCwd ?? null;
+    const cwd = resolved ?? members[0]?.cwd ?? key;
+    const id = `workspace:${key}`;
     nodes.push({
       id,
       type: "governance",
@@ -256,11 +368,12 @@ export function buildGraph(agents, { daemon = {}, generatedAt, scope } = {}) {
       data: {
         kind: "DURABLE TRUTH",
         title: cwd.split("/").pop() || cwd,
-        detail: cwd,
+        detail: resolved ? cwd : `${cwd} (path could not be resolved)`,
+        canonical: resolved,
         tone: "muted",
       },
     });
-    for (const a of agents.filter((x) => x.cwd === cwd && x.role !== "unknown")) {
+    for (const a of members.filter((x) => x.role !== "unknown")) {
       edges.push({
         id: `chk-${a.id}`,
         source: a.id,
@@ -306,28 +419,96 @@ export const ASSERT_RULES = Object.freeze({
 });
 
 /**
- * Classify write posture from the Mode `inspect` reports. Only unambiguous
- * modes are classified; everything else — a missing mode (inspect failed or
- * withheld the field) and approval-gated modes like "default" — is "unknown",
- * because an approval-gated agent may or may not be writing and guessing in
- * either direction would invent a signal the graph does not carry.
+ * Mode ids are PROVIDER-NAMESPACED and they collide across providers.
+ *
+ * Measured 2026-08-31 on the pack's own host, from `paseo inspect <id> --json`
+ * → `.AvailableModes` (id = label):
+ *   claude  plan="Plan Mode", default="Always Ask", acceptEdits="Accept File
+ *           Edits", auto="Auto mode", bypassPermissions="Bypass"
+ *   omp     full="Full Access", write="Write Approval", ask="Always Ask"
+ *   codex   auto="Default Permissions", auto-review="Auto-review",
+ *           full-access="Full Access"
+ *
+ * omp's `write` is an ASK-FIRST GATE, not a standing grant. The flat token
+ * table this replaces matched it as a confirmed writer while missing codex's
+ * `full-access` entirely — one table manufacturing violations at one end and
+ * losing real ones at the other. Lookup is by exact id: the old fuzzy
+ * "lowercase and strip separators" pass is what let `write` collide in the
+ * first place.
+ *
+ * `agy` is classified from documentation, not from the daemon: agy seats
+ * publish an EMPTY AvailableModes (measured), and docs/review-instruments.md
+ * records the four ACP modes it offers.
+ *
+ * Live-on-host but deliberately ABSENT: `grok` (Mode "default") and `cursor`
+ * (Mode "agent") publish no AvailableModes and no pack documentation says what
+ * their modes grant. Absent means unknown means cannot-verify — an entry
+ * invented here would be a guess wearing a table's authority.
  */
-export function writePosture(mode) {
+export const MODE_POSTURES = Object.freeze({
+  claude: Object.freeze({
+    plan: "read-only",
+    default: "approval-gated",
+    acceptEdits: "write",
+    // "Auto mode": present on every claude seat and undocumented in this pack.
+    // Named on purpose so a reader sees it was measured and left unclassified.
+    auto: "unknown",
+    bypassPermissions: "write",
+  }),
+  omp: Object.freeze({
+    full: "write",
+    write: "approval-gated",
+    ask: "approval-gated",
+  }),
+  codex: Object.freeze({
+    auto: "approval-gated",
+    "auto-review": "approval-gated",
+    "full-access": "write",
+  }),
+  agy: Object.freeze({
+    plan: "read-only",
+    default: "approval-gated",
+    "accept-edits": "write",
+    "dangerously-skip-permissions": "write",
+  }),
+});
+
+/**
+ * Write posture of (provider family, mode id) → "write" | "read-only" |
+ * "approval-gated" | "unknown".
+ *
+ * "approval-gated" is a real answer, distinct from "unknown": the mode IS
+ * classified and it means a human is asked first. Neither one is a writer and
+ * neither one rules a writer out — the difference is only in what the evidence
+ * line can honestly say.
+ *
+ * Posture is never authority on its own. See enforcementClass(): on a
+ * pack-enforced seat the hook decides and this value must be ignored.
+ */
+export function writePosture(provider, mode) {
   if (mode === null || mode === undefined || mode === "") return "unknown";
-  const normalized = String(mode).toLowerCase().replace(/[\s_-]/g, "");
-  if (["plan", "readonly", "observe"].includes(normalized)) return "read-only";
-  if (["acceptedits", "bypasspermissions", "yolo", "write", "edit"].includes(normalized)) return "write";
-  return "unknown";
+  const table = MODE_POSTURES[providerFamily(provider)];
+  return table?.[String(mode)] ?? "unknown";
 }
 
 /**
  * Evaluate topology invariants A1–A6 over an already-built graph. Pure: no
- * daemon, no I/O, deterministic output for a given graph.
+ * daemon, no I/O, no realpath — every path identity it reads was resolved at
+ * ingest — and deterministic output for a given graph.
  *
  * Returns { violations, cannotVerify }, each entry { id, rule, agents,
- * evidence }. Fail-closed honesty: an invariant whose signal is not derivable
- * from the graph lands in cannotVerify with a concrete reason — unknown is
- * never pass, and inventing a signal is worse than admitting blindness.
+ * evidence } plus `advisory: true` on the entries that are a DEMOTED check
+ * rather than a blind one. Three buckets, and the difference matters:
+ *   violation    a fact the graph carries that breaks an invariant → exit 3.
+ *   cannotVerify a signal the graph does not carry → reported, exit 0.
+ *   advisory     a check whose signal exists but is not trustworthy enough to
+ *                fail a build on (F015 role vocabulary, idle write-capable
+ *                seats) → reported, exit 0, and NAMED so nobody mistakes the
+ *                silence for a pass.
+ *
+ * Fail-closed honesty runs both ways here, which is the pack-ship correction:
+ * unknown is never a pass, AND a non-signal is never a violation. An invariant
+ * that cries wolf every morning is a broken invariant.
  */
 export function assertTopology(graph) {
   const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
@@ -335,11 +516,12 @@ export function assertTopology(graph) {
   const meta = graph?.meta ?? {};
   const violations = [];
   const cannotVerify = [];
-  const entry = (rule, key, agentIds, evidence) => ({
+  const entry = (rule, key, agentIds, evidence, options = {}) => ({
     id: `${rule}:${key}`,
     rule: `${rule}-${ASSERT_RULES[rule]}`,
     agents: [...agentIds].sort(),
     evidence,
+    ...(options.advisory ? { advisory: true } : {}),
   });
 
   const agents = nodes
@@ -348,64 +530,157 @@ export function assertTopology(graph) {
       id: n.id,
       role: n.data?.role ?? "unknown",
       status: n.data?.status ?? "unknown",
+      provider: n.data?.provider ?? "",
+      enforcement: n.data?.enforcement ?? enforcementClass(n.data?.provider),
       mode: n.data?.mode ?? null,
+      modeLabel: n.data?.modeLabel ?? null,
       cwd: n.data?.cwd ?? "",
-      posture: writePosture(n.data?.mode),
+      canonicalCwd: n.data?.canonicalCwd ?? null,
+      cwdError: n.data?.cwdError ?? null,
+      posture: writePosture(n.data?.provider, n.data?.mode),
     }));
   const byId = new Map(agents.map((a) => [a.id, a]));
-  const modeLabel = (a) => (a.mode === null ? "mode absent (no inspect data)" : `unrecognized mode "${a.mode}"`);
+  const running = (a) => a.status === "running";
+  /** How to name a mode we could not turn into authority, in the agent's own words. */
+  const modeNote = (a) => {
+    if (a.mode === null) return `${a.id}: mode absent (no inspect data)`;
+    const named = a.modeLabel ? `"${a.mode}" (${a.provider} calls it "${a.modeLabel}")` : `"${a.mode}"`;
+    if (a.posture === "approval-gated") return `${a.id}: approval-gated mode ${named}`;
+    return `${a.id}: mode ${named} is not in the ${providerFamily(a.provider) || "(unnamed)"} posture table`;
+  };
 
-  // A1 — more than one write-capable peer sharing one scope.
+  // -------------------------------------------------------------------------
+  // A1 — one writer per scope. Three signals must line up, and before the
+  // pack-ship fix every one of them was being manufactured:
+  //
+  //   SCOPE      the canonical directory, so `~/x` and `/Users/u/x` are ONE key
+  //              instead of two (this split fired on EVERY run — the graph's
+  //              own ls/inspect pair spells the same directory both ways).
+  //   LIVENESS   status === "running". "May I archive this?" is a question
+  //              about an IDLE agent and it belongs to reconcile-observer.mjs,
+  //              which has the retention evidence for it. "Is something
+  //              mutating this directory right now?" is THIS gate's question,
+  //              and a running process is the only evidence of it the graph
+  //              carries. An idle seat is not evidence in either direction —
+  //              11 idle peers on this repo produced 11 daily false alarms.
+  //   AUTHORITY  the mode is write authority only where nothing else bounds the
+  //              seat. On a pack-enforced seat the PreToolUse hook decides from
+  //              a V3 brief this graph cannot read, so `bypassPermissions`
+  //              there is not evidence of a writer.
+  //
+  // STATED VACUUM (do not "fix" this by loosening a clause): "role === peer AND
+  // unenforced" is EMPTY on every fleet the pack can produce today, because
+  // role is read off a provider suffix that only the pack-enforced claude-*
+  // providers carry. A1's true-positive branch is therefore unreachable in
+  // production until F015 gives roles their own source, and its positive
+  // control is SYNTHETIC — a hand-built `omp-peer` no shipped config emits.
+  // The same vacuum has a second half (U4): omp/agy/codex seats carry no role
+  // suffix at all, so A1 never even looks at the fleet that IS unenforced.
+  // -------------------------------------------------------------------------
   const peers = agents.filter((a) => a.role === "peer");
   const noScope = peers.filter((a) => !a.cwd);
   if (noScope.length > 0) {
     cannotVerify.push(entry("A1", "(no-scope)", noScope.map((a) => a.id),
       `${noScope.length} peer agent(s) carry no cwd signal; scope sharing cannot be evaluated for them`));
   }
-  const peersByCwd = new Map();
-  for (const p of peers.filter((a) => a.cwd)) {
-    if (!peersByCwd.has(p.cwd)) peersByCwd.set(p.cwd, []);
-    peersByCwd.get(p.cwd).push(p);
+  const unresolvedScope = peers.filter((a) => a.cwd && !a.canonicalCwd);
+  if (unresolvedScope.length > 0) {
+    cannotVerify.push(entry("A1", "(unresolved-scope)", unresolvedScope.map((a) => a.id),
+      `${unresolvedScope.length} peer agent(s) carry a cwd that could not be canonicalized (${unresolvedScope
+        .map((a) => `${a.id}: ${a.cwd} — ${a.cwdError ?? "unresolved"}`).sort().join("; ")
+      }); an unresolved path is never keyed as a scope of its own and never read as "not in this scope"`));
   }
-  for (const cwd of [...peersByCwd.keys()].sort()) {
-    const group = peersByCwd.get(cwd);
-    const writers = group.filter((a) => a.posture === "write");
-    const unknowns = group.filter((a) => a.posture === "unknown");
+  const peersByScope = new Map();
+  for (const p of peers.filter((a) => a.canonicalCwd)) {
+    if (!peersByScope.has(p.canonicalCwd)) peersByScope.set(p.canonicalCwd, []);
+    peersByScope.get(p.canonicalCwd).push(p);
+  }
+  for (const scope of [...peersByScope.keys()].sort()) {
+    const group = peersByScope.get(scope);
+    const live = group.filter(running);
+    const unenforced = live.filter((a) => a.enforcement === "unenforced");
+    const writers = unenforced.filter((a) => a.posture === "write");
+    const undecidable = unenforced.filter((a) => a.posture !== "write" && a.posture !== "read-only");
+
     if (writers.length > 1) {
-      violations.push(entry("A1", cwd, writers.map((a) => a.id),
-        `${writers.length} write-capable peers share scope ${cwd}: ${writers.map((a) => `${a.id}(${a.mode})`).sort().join(", ")}`));
-    } else if (unknowns.length > 0 && writers.length + unknowns.length > 1) {
-      cannotVerify.push(entry("A1", cwd, unknowns.map((a) => a.id),
-        `scope ${cwd} has ${writers.length} confirmed writer(s) plus ${unknowns.length} peer(s) whose posture is not derivable (${unknowns.map(modeLabel).sort().join("; ")}); a second writer cannot be ruled out`));
+      violations.push(entry("A1", scope, writers.map((a) => a.id),
+        `${writers.length} running write-capable peers share scope ${scope}: ${writers.map((a) => `${a.id}(${a.mode})`).sort().join(", ")}; no mechanism in this pack bounds their writes`));
+    } else if (undecidable.length > 0 && writers.length + undecidable.length > 1) {
+      cannotVerify.push(entry("A1", scope, undecidable.map((a) => a.id),
+        `scope ${scope} has ${writers.length} confirmed writer(s) plus ${undecidable.length} running unenforced peer(s) whose posture is not derivable (${undecidable.map(modeNote).sort().join("; ")}); a second writer cannot be ruled out`));
+    }
+
+    // One line per scope, not one per seat: the pack-enforced fleet is the
+    // common case and its blindness is a property of the SCOPE, not news
+    // about each agent in it.
+    const enforced = live.filter((a) => a.enforcement === "pack-enforced");
+    if (enforced.length > 0) {
+      cannotVerify.push(entry("A1", `${scope}:pack-enforced`, enforced.map((a) => a.id),
+        `scope ${scope} has ${enforced.length} running pack-enforced seat(s) (${enforced.map((a) => `${a.id}(${a.provider}/${a.mode ?? "no mode"})`).sort().join(", ")}); for these the PreToolUse hook decides write authority from the V3 brief, which this graph cannot read — Mode is not evidence here in either direction`));
+    }
+    const unclassifiedSeats = live.filter((a) => a.enforcement === "unknown");
+    if (unclassifiedSeats.length > 0) {
+      cannotVerify.push(entry("A1", `${scope}:unknown-enforcement`, unclassifiedSeats.map((a) => a.id),
+        `scope ${scope} has ${unclassifiedSeats.length} running seat(s) on providers this pack neither enforces nor documents as unenforced (${unclassifiedSeats.map((a) => `${a.id}(${a.provider})`).sort().join(", ")}); whether Mode is authority for them is unknown`));
+    }
+
+    // Flood control (the 11-idle-peers case): ONE advisory for the scope,
+    // pointing at the tool that owns the retire/archive decision.
+    const idleWriteCapable = group.filter((a) => !running(a) && a.posture === "write");
+    if (idleWriteCapable.length > 0) {
+      cannotVerify.push(entry("A1", `${scope}:idle-write-capable`, idleWriteCapable.map((a) => a.id),
+        `ADVISORY (not a violation): ${idleWriteCapable.length} non-running peer(s) in scope ${scope} hold a write-capable mode. Idle is not evidence that anything is mutating, and it is not evidence that nothing is; whether these seats should be retired is reconcile-observer.mjs's question, which has the retention signals this graph does not`,
+        { advisory: true }));
     }
   }
 
-  // A2 — a lead in a write-capable posture; the pack's lead default is read-only.
+  // -------------------------------------------------------------------------
+  // A2 — DEMOTED TO ADVISORY until F015. The check needs to know that a seat is
+  // a lead, and "lead" here means nothing but a provider-name suffix (M3: the
+  // enforced role enum {observer,writer,reviewer,lead,supervisor} has zero live
+  // instances, while the live fleet carries {peer,scout,architect}). Failing a
+  // morning gate on a naming convention is how an exit code stops being read.
+  // -------------------------------------------------------------------------
   const leadWrite = nodes.find((n) => n?.id === "run-policy")?.data?.policy?.leadWrite ?? "undeclared";
   for (const lead of agents.filter((a) => a.role === "lead")) {
     if (lead.posture === "write") {
-      violations.push(entry("A2", lead.id, [lead.id],
-        `lead ${lead.id} holds write-capable mode "${lead.mode}"; the lead seat accepts, it does not write (leadWrite policy: ${leadWrite})`));
-    } else if (lead.posture === "unknown") {
       cannotVerify.push(entry("A2", lead.id, [lead.id],
-        `lead ${lead.id} posture is not derivable: ${modeLabel(lead)}; read-only cannot be confirmed`));
+        `ADVISORY (not a violation): lead ${lead.id} holds write-capable mode "${lead.mode}"; the lead seat accepts, it does not write. ${
+          lead.enforcement === "pack-enforced"
+            ? "This seat is pack-enforced, so the mode is not its authority — the hook is"
+            : "Role here is a provider-name suffix, which F015 records as an unreliable source"
+        }. leadWrite is ${leadWrite} in THIS collector's environment, which says nothing about the environment ${lead.id} runs in`,
+        { advisory: true }));
+    } else if (lead.posture !== "read-only") {
+      cannotVerify.push(entry("A2", lead.id, [lead.id],
+        `lead ${lead.id} posture is not derivable: ${modeNote(lead)}; read-only cannot be confirmed`));
     }
   }
 
-  // A3 — an agent with no role suffix inside a scope where role-providers run.
-  const governedCwds = new Map();
+  // -------------------------------------------------------------------------
+  // A3 — DEMOTED TO ADVISORY until F015. "Unknown role" means only "no
+  // recognized suffix on the provider name". The documented scout fleet runs on
+  // omp/agy/codex providers that carry real, briefed roles the provider name
+  // cannot express, so every ultra-review round would trip this rule while
+  // behaving exactly as designed. What the check reports is a NAMING gap.
+  // -------------------------------------------------------------------------
+  const governedScopes = new Map();
   for (const a of agents) {
-    if (a.role === "unknown" || !a.cwd) continue;
-    if (!governedCwds.has(a.cwd)) governedCwds.set(a.cwd, []);
-    governedCwds.get(a.cwd).push(a.id);
+    if (a.role === "unknown" || !a.canonicalCwd) continue;
+    if (!governedScopes.has(a.canonicalCwd)) governedScopes.set(a.canonicalCwd, []);
+    governedScopes.get(a.canonicalCwd).push(a.id);
   }
   for (const u of agents.filter((a) => a.role === "unknown")) {
     if (!u.cwd) {
       cannotVerify.push(entry("A3", u.id, [u.id],
         `agent ${u.id} declares no role and carries no cwd signal; whether it sits inside a governed scope cannot be determined`));
-    } else if (governedCwds.has(u.cwd)) {
-      violations.push(entry("A3", u.id, [u.id],
-        `agent ${u.id} has no role suffix on its provider but is active in governed scope ${u.cwd} alongside role-declared agents [${governedCwds.get(u.cwd).sort().join(", ")}]`));
+    } else if (!u.canonicalCwd) {
+      cannotVerify.push(entry("A3", u.id, [u.id],
+        `agent ${u.id} declares no role and its cwd ${u.cwd} could not be canonicalized (${u.cwdError ?? "unresolved"}); scope membership cannot be determined`));
+    } else if (governedScopes.has(u.canonicalCwd)) {
+      cannotVerify.push(entry("A3", u.id, [u.id],
+        `ADVISORY (not a violation): agent ${u.id} (${u.provider || "no provider"}) has no role suffix on its provider but is active in governed scope ${u.canonicalCwd} alongside role-declared agents [${governedScopes.get(u.canonicalCwd).sort().join(", ")}]. Provider names are the only role source the graph has; a briefed scout on a non-claude provider looks identical to an ungoverned stray until F015`,
+        { advisory: true }));
     }
   }
 
@@ -427,7 +702,11 @@ export function assertTopology(graph) {
       "snapshot is partial (capped scan or failed inspects); ParentAgentId is only visible via inspect, so the absence of further delegation edges is not proof that no peer orchestrates"));
   }
 
-  // A5 — a supervisor that orchestrates, or writes where posture is visible.
+  // A5 — split by evidence class. The delegation leg STAYS exit-3: a
+  // ParentAgentId is a fact Paseo recorded, and a supervisor that spawned an
+  // agent did so whatever its provider is named. The posture leg is demoted for
+  // the same reason as A2 — it rests on the provider-suffix role vocabulary,
+  // and on a pack-enforced seat the mode is not authority at all.
   for (const sup of agents.filter((a) => a.role === "supervisor")) {
     const targets = (delegateTargets.get(sup.id) ?? []).sort();
     if (targets.length > 0) {
@@ -435,19 +714,25 @@ export function assertTopology(graph) {
         `supervisor ${sup.id} parents delegation edge(s) to [${targets.join(", ")}]; the supervisor seat is observe-only and never orchestrates`));
     }
     if (sup.posture === "write") {
-      violations.push(entry("A5", `${sup.id}:posture`, [sup.id],
-        `supervisor ${sup.id} holds write-capable mode "${sup.mode}"; the supervisor seat is observe-only`));
-    } else if (sup.posture === "unknown") {
       cannotVerify.push(entry("A5", `${sup.id}:posture`, [sup.id],
-        `supervisor ${sup.id} posture is not derivable: ${modeLabel(sup)}; observe-only cannot be confirmed`));
+        `ADVISORY (not a violation): supervisor ${sup.id} holds write-capable mode "${sup.mode}"; the supervisor seat is observe-only. ${
+          sup.enforcement === "pack-enforced"
+            ? "This seat is pack-enforced, so the hook — not the mode — is what actually denies the write"
+            : "Role here is a provider-name suffix, which F015 records as an unreliable source"
+        }`,
+        { advisory: true }));
+    } else if (sup.posture !== "read-only") {
+      cannotVerify.push(entry("A5", `${sup.id}:posture`, [sup.id],
+        `supervisor ${sup.id} posture is not derivable: ${modeNote(sup)}; observe-only cannot be confirmed`));
     }
   }
 
-  // A6 — counts must never present a capped or partial scan as a total.
+  // A6 — counts must never present a capped, partial, or EMPTY scan as a total.
   const scan = meta.scan;
   const scanShapeOk =
     scan !== null &&
     typeof scan === "object" &&
+    Number.isFinite(scan?.listedTotal) &&
     Number.isFinite(scan?.scopedTotal) &&
     Number.isFinite(scan?.rendered) &&
     Number.isFinite(scan?.uninspected) &&
@@ -456,6 +741,20 @@ export function assertTopology(graph) {
     cannotVerify.push(entry("A6", "(no-scan-metadata)", [],
       "meta.scan is absent or malformed, so meta.counts cannot be checked against the pre-cap population; counts must not be read as totals"));
   } else {
+    // A scan of nothing must never read as a pass. The daemon listed agents
+    // and the scope filter matched none of them: that is a mistyped --cwd, a
+    // stale spelling, or a workspace nobody is working in — three different
+    // answers, none of which is "the topology is clean".
+    if (scan.scopedTotal === 0 && scan.listedTotal > 0) {
+      violations.push(entry("A6", "empty-scope", [],
+        `scope ${meta.scope ?? "(undeclared)"} matched 0 of ${scan.listedTotal} listed agents; an empty scan is not a clean topology — check the scope spelling, or use --all`));
+    }
+    // Nothing listed at all is a different statement: the daemon really is
+    // empty, so there is no population to be wrong about, and no pass to give.
+    if (scan.listedTotal === 0) {
+      cannotVerify.push(entry("A6", "(empty-daemon)", [],
+        "the daemon listed 0 agents, so no invariant had anything to evaluate; this is an empty result, not a verified-clean topology"));
+    }
     if (scan.rendered < scan.scopedTotal && scan.truncated !== true) {
       violations.push(entry("A6", "truncation-unsignaled", [],
         `scan rendered ${scan.rendered} of ${scan.scopedTotal} in-scope agents but meta.scan.truncated is not true; a capped scan must never read as a total`));
@@ -515,15 +814,37 @@ export async function collectGraph(options = {}) {
     };
   }
 
-  const scoped = (Array.isArray(listed) ? listed : []).filter((a) =>
-    inScope({ cwd: a.cwd }, { all: options.all, cwd: options.cwd }),
+  // Canonicalize at ingest, before anything is compared: `ls` spells this
+  // machine's directories `~/x` and `inspect` spells the same ones
+  // `/Users/u/x`. One realpath per distinct spelling, memoized — three orders
+  // of magnitude below the execFile fan-out below it.
+  const listedAgents = Array.isArray(listed) ? listed : [];
+  const concurrency = Math.max(1, Math.min(16, options.concurrency ?? DEFAULT_INSPECT_CONCURRENCY));
+  const scopeRaw = options.all ? "" : normalizePaseoCwd(options.cwd ?? process.cwd());
+  const canonicalCwds = await resolveCanonicalCwds(
+    [...listedAgents.map((a) => normalizePaseoCwd(a.cwd)), scopeRaw],
+    { concurrency },
   );
+  const scopeCanonical = scopeRaw ? (canonicalCwds.get(scopeRaw)?.canonical ?? null) : null;
+
+  // An agent whose cwd will not resolve cannot be proven in or out of scope. It
+  // is decided on its raw spelling and REPORTED — the alternative, dragging
+  // every unresolvable path on the host into one workspace's scope, would bury
+  // the scope in agents that have nothing to do with it.
+  const unresolvedCwds = [];
+  const scoped = listedAgents.filter((a) => {
+    const cwd = normalizePaseoCwd(a.cwd);
+    const canonicalCwd = cwd ? (canonicalCwds.get(cwd)?.canonical ?? null) : null;
+    if (cwd && !canonicalCwd && !options.all) {
+      unresolvedCwds.push({ id: a.id, cwd, error: canonicalCwds.get(cwd)?.error ?? "unresolved" });
+    }
+    return inScope({ cwd, canonicalCwd }, { all: options.all, cwd: scopeRaw, scopeCanonical });
+  });
   const capped = scoped.slice(0, Math.max(1, Math.floor(options.maxAgents ?? 100)));
 
   // Bounded fan-out: ParentAgentId only exists on inspect, so this is the cost.
   const details = new Array(capped.length);
   let cursor = 0;
-  const concurrency = Math.max(1, Math.min(16, options.concurrency ?? DEFAULT_INSPECT_CONCURRENCY));
   async function worker() {
     while (cursor < capped.length && Date.now() < deadline) {
       const i = cursor++;
@@ -536,24 +857,40 @@ export async function collectGraph(options = {}) {
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, capped.length) }, worker));
 
+  // `inspect` reports its own spelling of Cwd, so the spellings it introduces
+  // are canonicalized too and merged into the same table.
+  for (const [cwd, resolved] of await resolveCanonicalCwds(
+    capped.map((_, i) => normalizePaseoCwd(details[i]?.Cwd ?? "")),
+    { concurrency },
+  )) {
+    canonicalCwds.set(cwd, resolved);
+  }
+
   const agents = capped.map((listedAgent, i) =>
-    markStale(normalizeAgent(listedAgent, details[i]), { staleAfterMs: options.staleAfterMs }),
+    markStale(normalizeAgent(listedAgent, details[i], canonicalCwds), { staleAfterMs: options.staleAfterMs }),
   );
   const graph = buildGraph(agents, {
     daemon,
-    scope: options.all ? "all" : (options.cwd ?? process.cwd()),
+    scope: options.all ? "all" : (scopeCanonical ?? scopeRaw ?? process.cwd()),
   });
   // A capped scan must never read as a total: meta.counts describes the
   // RENDERED set, so the pre-cap population and the inspect shortfall are
   // published alongside it instead of collapsing into one boolean.
   const uninspected = agents.filter((a) => !a.inspectOk).length;
   graph.meta.scan = {
-    listedTotal: Array.isArray(listed) ? listed.length : 0,
+    listedTotal: listedAgents.length,
     scopedTotal: scoped.length,
     rendered: capped.length,
     truncated: scoped.length > capped.length,
     uninspected,
+    // Scoped on a raw spelling because the path would not resolve. Published
+    // rather than swallowed: a scope decision made without canonical identity
+    // is exactly the class of miss this change exists to close.
+    cwdUnresolved: unresolvedCwds.length,
+    ...(unresolvedCwds.length > 0 ? { cwdUnresolvedDetail: unresolvedCwds.slice(0, 20) } : {}),
   };
+  graph.meta.scopeCanonical = scopeCanonical;
+  if (scopeRaw && !scopeCanonical) graph.meta.scopeResolveError = canonicalCwds.get(scopeRaw)?.error ?? "unresolved";
   graph.meta.partial = graph.meta.scan.truncated || uninspected > 0;
   return graph;
 }
@@ -694,7 +1031,11 @@ Assert exit codes:
 Invariants: A1 one-writer-per-scope, A2 writer-is-acceptor, A3 unknown-role in
 governed scope, A4 peer-orchestrates, A5 supervisor-not-observe-only, A6
 count-integrity. Unknown is never pass: a signal the graph does not carry is
-reported under cannotVerify with the concrete reason.`;
+reported under cannotVerify with the concrete reason. Neither is unknown a
+violation: A2, A3 and A5's posture leg report as advisories (cannotVerify with
+"advisory": true) because they rest on the provider-name role vocabulary that
+F015 owns, and A1's true-positive branch is vacuous until F015 gives roles a
+source. A4, A5's delegation leg and A6 are fact-based and still exit 3.`;
 }
 
 async function main() {

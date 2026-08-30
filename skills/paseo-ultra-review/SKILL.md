@@ -405,13 +405,32 @@ more bugs are found. The suppression asymmetry applies to the FIX phase too: an
 applied fix is committed and hard to walk back; a recorded finding can be fixed
 any time. So the bias is record, and fixing needs a bar:
 
-- Every finding carries `Convergence: n/<planned>`, `Reproduced: yes|no`, and
-  `Action: fix-eligible | record-only` — computed by
-  `findingAction()` in `scripts/ultra-review-report.mjs`, never hand-picked:
-  `fix-eligible ⇔ Reproduced AND (Convergence ≥ 3 OR contract-breaker)`.
+- The report artifact has ONE declared grammar, owned by
+  `scripts/ultra-review-report.mjs` (`GATE_FIELDS`, `parseGateLine`,
+  `parseReport`, `checkReportGate`) — never hand-roll a second parser over the
+  same artifact. A report's header carries `Gate: v1`; a report without that
+  marker predates the grammar and is declared PRE-GATE (its findings are not
+  decision-bearing — one anomaly for the whole file, never inferred
+  finding-by-finding from the absence of Action lines).
+- Every finding in a gated report carries one exact line: `Convergence:
+  <n>/<scouts planned> | Reproduced: yes|no|partial | Contract-breaker: yes|no
+  | Action: fix-eligible|record-only`. A field that is missing, TODO, or not
+  one of its listed tokens is `unknown` plus an anomaly — ambiguous text is
+  never decisive, and an unchosen template placeholder must never parse as a
+  chosen value.
+- `Action` is RECOMPUTED by `checkReportGate()` (which calls `findingAction()`
+  in its own module — the gate's first production consumer), never
+  hand-picked: `fix-eligible ⇔ Reproduced=yes AND (Convergence ≥ 3 OR
+  Contract-breaker=yes)`. A hand-written Action that disagrees with the
+  computed value is itself an anomaly, and the computed value is what
+  downstream tooling (`eod-digest.mjs`, and eventually CI) acts on.
 - **Reproduction is non-negotiable.** Ten scouts agreeing on a failure nobody
-  reproduced is ten shares of one speculation. One scout plus a reproduced
+  reproduced is ten shares of one speculation. `partial` is a real token — it
+  never satisfies the gate on its own. One scout plus a reproduced
   contract-breaker may fix; ten scouts without a repro may not.
+- **Applied is a separate, dedicated line** — `Applied: yes` or `Applied: no`
+  inside the finding's own block. It is never inferred from prose ("(not
+  applied)" is not "applied") or from a summary table row.
 - **Trade-off is the second half of the gate.** A `fix-eligible` finding is
   still not *applied* until its `Trade-off of fixing now` line states what the
   fix costs or risks — "none identified" written out, never implied.

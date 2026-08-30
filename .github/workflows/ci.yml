@@ -47,6 +47,20 @@ jobs:
           for f in scripts/*.mjs test/fixtures/*.mjs; do
             node --check "$f"
           done
+      # A byte change to governed files without a manifest refresh must fail
+      # the PR, not surface weeks later as a wrong digest burned into a deploy
+      # commit (pack-ship F007, CI limb).
+      - name: policy digest drift
+        run: node scripts/policy-digest.mjs --check
+      # Second automatic caller of the convergence gate (pack-ship F005 /
+      # architect ruling Q3): reports are committed alongside their fixes, so
+      # pre-merge is where a hand-written Action that disagrees with
+      # findingAction(), or a fix-eligible finding missing its Trade-off, gets
+      # caught. Pre-gate reports (no `Gate: v1`) pass by declaration. Lives in
+      # a real script (not inline) so its exit wiring has a killing test —
+      # test/check-report-gates.test.mjs (fix-cycle R1).
+      - name: ultra-review gate check
+        run: node scripts/check-report-gates.mjs docs/ultrareview
 
   # Live remote Paseo checks stay manual (they need two real hosts); this CI
   # only gates the pure tests. Typecheck needs the pi-coding-agent package

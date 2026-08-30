@@ -11,7 +11,9 @@
 // the dependency graph on purpose.
 
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { delimiter, dirname, join, sep } from "node:path";
+import { realpath } from "node:fs/promises";
+import { homedir } from "node:os";
+import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -193,6 +195,89 @@ export function resolvePaseoExec(onInvalidOverride) {
 			conventionalCandidates: PASEO_CONVENTIONAL_ENTRIES,
 		}) ?? ["paseo"]
 	);
+}
+
+// ---------------------------------------------------------------------------
+// Path identity — one canonicalization doctrine for every consumer
+// ---------------------------------------------------------------------------
+//
+// These two moved here from reconcile-observer.mjs when governance-graph.mjs
+// became the SECOND consumer that needs agent-scope identity (pack-ship F004:
+// one physical directory reached the graph under `~/x` from `ls` and
+// `/Users/u/x` from `inspect` and split into two A1 keys on EVERY run). A
+// second private copy is exactly the drift this file exists to prevent; the
+// reconciler now imports them from here and its suites are the guard that the
+// move changed no behavior.
+
+export const DEFAULT_CANONICALIZE_CONCURRENCY = 6;
+
+/**
+ * Deliberately a private duplicate of reconcile-observer's worker pool: this
+ * file sits at the bottom of the dependency graph and may not import a support
+ * script, and hoisting the reconciler's copy would have edited a file this
+ * change is not allowed to touch. Eight lines is the cheaper of the two smells.
+ */
+async function mapWithConcurrency(items, concurrency, operation) {
+	let cursor = 0;
+	async function worker() {
+		while (cursor < items.length) {
+			const index = cursor++;
+			await operation(items[index], index);
+		}
+	}
+	await Promise.all(
+		Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+	);
+}
+
+/** Expand Paseo's `~` cwd spelling. Lexical only — no filesystem access. */
+export function normalizePaseoCwd(raw) {
+	const rawCwd = String(raw ?? "");
+	return rawCwd === "~"
+		? homedir()
+		: rawCwd.startsWith("~/") || rawCwd.startsWith("~\\")
+			? resolve(homedir(), rawCwd.slice(2))
+			: rawCwd;
+}
+
+/**
+ * Sole realpath caller for ingested (agent/workspace/terminal) cwd values.
+ * Memoized by raw string so every distinct spelling is realpath'd once per
+ * run. A miss is recorded explicitly and never falls back to the raw
+ * spelling — callers must treat a null canonical as "cannot verify", never
+ * as "not contained".
+ */
+export async function resolveCanonicalCwds(cwds, options = {}) {
+	const concurrency = options.concurrency ?? DEFAULT_CANONICALIZE_CONCURRENCY;
+	const unique = [...new Set(cwds.filter((cwd) => typeof cwd === "string" && cwd.length > 0))];
+	const map = new Map();
+	await mapWithConcurrency(unique, concurrency, async (cwd) => {
+		try {
+			map.set(cwd, { canonical: await realpath(cwd), error: null });
+		} catch (error) {
+			map.set(cwd, { canonical: null, error: String(error?.message ?? error) });
+		}
+	});
+	return map;
+}
+
+/**
+ * The pack's single reading of PASEO_TEAM_LEAD_WRITE.
+ *
+ * COLLECTOR-LOCAL: this reads the environment of whatever process asks, which
+ * for an observer (governance-graph) is the collector's env and NOT the
+ * inspected lead's. It therefore describes the policy the reader is running
+ * under — it is not evidence about a remote seat, and nothing may gate a
+ * verdict about another agent on it.
+ *
+ * Kept byte-honest with extensions/policy-core.mts `leadWriteEnabled()`, which
+ * is private to that module: test/lib-common.test.mjs pins parity through the
+ * exported `policyFor("lead", ...)` instead. The bug this closes (pack-ship
+ * U7) is a truthy check that read "0" and "false" as ENABLED.
+ */
+export function leadWriteEnabled(env = process.env) {
+	const raw = env.PASEO_TEAM_LEAD_WRITE?.trim().toLowerCase();
+	return raw === "1" || raw === "true" || raw === "yes";
 }
 
 /** Extract "1.8.10" from OCR's `ocr version` output. Null when absent. */

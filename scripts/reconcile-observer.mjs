@@ -9,6 +9,12 @@ import {
   classifyWorkspaceRetirement,
   isPathInside,
 } from "./reconcile-core.mjs";
+// Both moved to lib-common.mjs when governance-graph.mjs became the second
+// consumer of agent-scope identity; re-exported because this module was their
+// published home and test/reconcile-core.mjs imports normalizePaseoCwd here.
+import { normalizePaseoCwd, resolveCanonicalCwds } from "./lib-common.mjs";
+
+export { normalizePaseoCwd, resolveCanonicalCwds };
 
 export const DEFAULT_MANAGED_LABELS = Object.freeze([
   "harness.owner=paseo-claude-team",
@@ -220,36 +226,6 @@ export async function inspectProcessUse(cwd, options = {}) {
     return { state: "clear" };
   }
   return { state: "unknown", error: result.error ?? (String(result.stderr ?? "").trim() || `lsof exited ${result.code}`) };
-}
-
-export function normalizePaseoCwd(raw) {
-  const rawCwd = String(raw ?? "");
-  return rawCwd === "~"
-    ? homedir()
-    : rawCwd.startsWith("~/") || rawCwd.startsWith("~\\")
-      ? resolve(homedir(), rawCwd.slice(2))
-      : rawCwd;
-}
-
-/**
- * Sole realpath caller for ingested (agent/workspace/terminal) cwd values.
- * Memoized by raw string so every distinct spelling is realpath'd once per
- * run. A miss is recorded explicitly and never falls back to the raw
- * spelling — callers must treat a null canonical as "cannot verify", never
- * as "not contained".
- */
-export async function resolveCanonicalCwds(cwds, options = {}) {
-  const concurrency = options.concurrency ?? DEFAULT_INSPECT_CONCURRENCY;
-  const unique = [...new Set(cwds.filter((cwd) => typeof cwd === "string" && cwd.length > 0))];
-  const map = new Map();
-  await mapWithConcurrency(unique, concurrency, async (cwd) => {
-    try {
-      map.set(cwd, { canonical: await realpath(cwd), error: null });
-    } catch (error) {
-      map.set(cwd, { canonical: null, error: String(error?.message ?? error) });
-    }
-  });
-  return map;
 }
 
 function attachCanonicalCwd(record, canonicalMap) {

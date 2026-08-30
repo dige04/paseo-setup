@@ -134,12 +134,19 @@ stays meaningful without git history.
 | AP-01 / AP-01r | not yet — needs diff+typecheck integration in the review lane | pattern |
 | AP-02 | `test/reconcile-qualification.test.mjs` + rule in review instruments | **mechanism** |
 | AP-03 | not yet — greppable signals, candidate for `governance-graph --assert` | candidate |
-| AP-04 | `findingAction()` gate in `ultra-review-report.mjs` + mandatory root-cause reopen in `paseo-ultra-review` SKILL | **mechanism** (gate) + rule (reopen) |
+| AP-04 | `checkReportGate()` in `ultra-review-report.mjs`, called by `eod-digest.mjs` AND by CI via `scripts/check-report-gates.mjs` (exit wiring proven by `test/check-report-gates.test.mjs`); mandatory root-cause reopen in `paseo-ultra-review` SKILL | **mechanism** (gate — two automatic callers) + rule (reopen) |
 
-The deterministic assert tier (`A1–A6` in `research/design/01- §7.1`: two writers on one scope,
-reviewer sharing engineer's worktree, orphaned peer after Lead death, observed≠requested model,
-exit-0-as-proof, parallel-after-worktree) lives in `governance-graph.mjs` scope and is tracked
-there, not here — this file is for *model behavior* patterns that need an episode trail.
+The deterministic assert tier is `A1–A6` as shipped in `governance-graph.mjs`
+(`A1` one-writer-per-scope, `A2` writer-is-acceptor, `A3` unknown-role-in-governed-scope,
+`A4` peer-orchestrates, `A5` supervisor-not-observe-only, `A6` count-integrity) and is
+tracked in `docs/governance-graph.md`, not here — this file is for *model behavior*
+patterns that need an episode trail. Honesty note (fix-cycle ruling, 2026-08-31):
+**`A1`'s true-positive branch is vacuous until F015 lands a produced role taxonomy** —
+every provider it can see is pack-enforced (mode is not write authority there) and every
+unenforced provider (`omp`/`agy`/`codex`) has no role suffix and is invisible to it.
+A1 currently earns its keep by NOT crying wolf (idle seats → one advisory; spelling
+splits → one canonical scope); its teeth arrive with F015. Do not "simplify" the
+suppression clauses on the grounds that A1 never fires — that is the vacuum, stated.
 
 ## AP-04 — symptom-patching a converged root
 

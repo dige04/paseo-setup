@@ -2,17 +2,22 @@
 // six near-identical private copies; the behaviours pinned here are the ones
 // that differed between those copies and are therefore easy to regress.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { homedir } from "node:os";
 
 import {
   PASEO_CONVENTIONAL_ENTRIES,
   compareOcrVersions,
   findOnPath,
   isEntrypoint,
+  leadWriteEnabled,
+  normalizePaseoCwd,
   parseOcrVersion,
+  resolveCanonicalCwds,
   resolveCmdEntry,
   resolvePaseoExec,
   searchPathDirs,
@@ -205,6 +210,96 @@ assert.throws(() => splitCommandLine(["paseo"]), TypeError);
   } catch (error) {
     if (!isWindows) throw error; // Windows without developer mode cannot symlink
   }
+}
+
+// --- normalizePaseoCwd / resolveCanonicalCwds --------------------------------
+//
+// Moved here from reconcile-observer.mjs when governance-graph became the
+// second consumer of agent-scope identity. The reconciler's own suites are the
+// zero-behaviour-change guard; these pin the contract for the new caller.
+
+// `paseo ls --json` returns the tilde spelling and `paseo inspect --json`
+// returns the absolute one FOR THE SAME DIRECTORY, on every run. Expansion is
+// lexical: no filesystem access, so a path that does not exist still collapses.
+assert.equal(normalizePaseoCwd("~"), homedir());
+assert.equal(normalizePaseoCwd("~/proj"), join(homedir(), "proj"));
+assert.equal(normalizePaseoCwd("~/proj/../proj"), join(homedir(), "proj"));
+assert.equal(normalizePaseoCwd("/already/absolute"), "/already/absolute");
+assert.equal(normalizePaseoCwd(""), "");
+assert.equal(normalizePaseoCwd(undefined), "", "a missing cwd is empty, never the string 'undefined'");
+assert.equal(normalizePaseoCwd("~notahome/x"), "~notahome/x", "only the ~ HOME form expands");
+
+{
+  const base = tmp("libcommon-canon-");
+  const real = join(base, "repo");
+  mkdirSync(real);
+  const canonicalReal = realpathSync(real);
+  const link = join(base, "alias");
+  let linked = true;
+  try {
+    symlinkSync(real, link, "dir");
+  } catch (error) {
+    if (!isWindows) throw error; // Windows without developer mode cannot symlink
+    linked = false;
+  }
+
+  const spellings = [real, `${real}/`, ...(linked ? [link] : [])];
+  const map = await resolveCanonicalCwds([...spellings, join(base, "gone"), "", undefined]);
+
+  for (const spelling of spellings) {
+    assert.equal(map.get(spelling).canonical, canonicalReal, `${spelling} resolves to the one physical directory`);
+    assert.equal(map.get(spelling).error, null);
+  }
+  assert.equal(
+    new Set(spellings.map((s) => map.get(s).canonical)).size,
+    1,
+    "every spelling of one directory collapses to ONE identity — the whole point",
+  );
+
+  // A miss is recorded with its reason and NEVER falls back to the raw string:
+  // callers must read null as "cannot verify", never as "not contained".
+  assert.equal(map.get(join(base, "gone")).canonical, null);
+  assert.match(map.get(join(base, "gone")).error, /ENOENT|no such file/i);
+  assert.equal(map.has(""), false, "empty and non-string cwds are skipped, not resolved");
+  assert.equal(map.has(undefined), false);
+
+  // Memoized by raw string: one entry per distinct spelling, not per request.
+  const repeated = await resolveCanonicalCwds([real, real, real]);
+  assert.equal(repeated.size, 1);
+}
+
+// --- leadWriteEnabled --------------------------------------------------------
+//
+// KILLING TEST — parity with extensions/policy-core.mts, which is the module
+// that actually grants the lead its tools. Two parsers for one env var had
+// already drifted: governance-graph's truthy check read "0" and "false" as
+// ENABLED, so its policy node reported the opposite of the running policy.
+// policy-core's `leadWriteEnabled()` is private, so parity is measured through
+// the exported `policyFor()` — the observable that matters. Importing a .mts
+// module adds no platform requirement: `npm test` already runs test/*.test.mts.
+{
+  const { policyFor } = await import("../extensions/policy-core.mts");
+  const previous = process.env.PASEO_TEAM_LEAD_WRITE;
+
+  for (const raw of ["", "0", "false", "no", "off", "1", "true", "yes", "YES", " 1 ", "TRUE"]) {
+    process.env.PASEO_TEAM_LEAD_WRITE = raw;
+    const granted = policyFor("lead", "read-only").allow.includes("write");
+    assert.equal(
+      leadWriteEnabled(),
+      granted,
+      `PASEO_TEAM_LEAD_WRITE=${JSON.stringify(raw)}: the graph must report exactly what the hook grants`,
+    );
+  }
+  // The specific inversion that shipped: a truthy check called these enabled.
+  assert.equal(leadWriteEnabled({ PASEO_TEAM_LEAD_WRITE: "0" }), false);
+  assert.equal(leadWriteEnabled({ PASEO_TEAM_LEAD_WRITE: "false" }), false);
+  assert.equal(leadWriteEnabled({ PASEO_TEAM_LEAD_WRITE: "1" }), true);
+  assert.equal(leadWriteEnabled({}), false, "unset is disabled");
+
+  delete process.env.PASEO_TEAM_LEAD_WRITE;
+  assert.equal(leadWriteEnabled(), false);
+  if (previous === undefined) delete process.env.PASEO_TEAM_LEAD_WRITE;
+  else process.env.PASEO_TEAM_LEAD_WRITE = previous;
 }
 
 // --- OCR version helpers -----------------------------------------------------

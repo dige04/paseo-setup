@@ -8,10 +8,15 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  GATE_FIELDS,
+  GATE_MARKER_LINE,
   ULTRA_REVIEW_ERROR_CODES,
+  checkReportGate,
   findingAction,
   markdownTemplate,
   nextRound,
+  parseGateLine,
+  parseReport,
   slugify,
 } from "../scripts/ultra-review-report.mjs";
 
@@ -116,6 +121,9 @@ for (const [args, label] of [
   const written = readFileSync(join(dir, "docs", "ultrareview", "26-08-22-demo-round-1.md"), "utf8");
   assert.match(written, /# Ultra Review: demo Round 1/);
   assert.match(written, /Review brief SHA256: a{64}/);
+  // Gate: v1 is the report's opt-in to the strict grammar — a report lacking
+  // it is declared pre-gate, never inferred finding-by-finding.
+  assert.match(written, /^Gate: v1$/m);
   // The roster and the missing-scout accounting are the anti-silent-partial
   // mechanism; a template without them lets a lost scout read as coverage.
   assert.match(written, /## Scout Roster/);
@@ -337,22 +345,230 @@ assert.equal(findingAction({ convergence: NaN, reproduced: true }), "record-only
 assert.equal(findingAction(), "record-only");
 
 // The scaffold carries the gate columns so a consolidator cannot omit them.
+let templateMd;
 {
-  const md = markdownTemplate({
+  templateMd = markdownTemplate({
     dateSlug: "26-08-31", reviewName: "x", roundNumber: 1, scope: "s",
     reportPath: "docs/ultrareview/x.md", priorReports: [], reviewBriefSha256: "a".repeat(64),
     scoutCount: 10, directiveCount: 0, manifest: null,
   });
-  assert.match(md, /Convergence: TODO n\/10 \| Reproduced: TODO yes\/no \| Action: TODO/);
-  assert.match(md, /CONVERGENCE GATE \(mandatory on every finding\)/);
-  assert.match(md, /architect-Peer on the root question before fixing/);
+  assert.match(templateMd, /^Gate: v1$/m);
+  assert.match(templateMd, /Convergence: TODO n\/10 \| Reproduced: TODO yes\/no \| Contract-breaker: TODO yes\/no \| Action: TODO/);
+  assert.match(templateMd, /CONVERGENCE GATE \(mandatory on every finding/);
+  assert.match(templateMd, /architect-Peer on the root question before fixing/);
   // Trade-off is the second half of the gate: convergence answers "is it
   // real", trade-off answers "is fixing it now a good exchange". The template
   // must force the statement so a fix-eligible finding cannot be applied with
   // the question silently skipped (round-1 F017 was exactly that).
-  assert.match(md, /Trade-off of fixing now:/);
-  assert.match(md, /TRADE-OFF \(second half of the gate\)/);
-  assert.match(md, /"none identified" written out, never implied/);
+  assert.match(templateMd, /Trade-off of fixing now:/);
+  assert.match(templateMd, /TRADE-OFF \(second half of the gate\)/);
+  assert.match(templateMd, /"none identified" written out, never implied/);
 }
 
 console.log("convergence gate tests passed");
+
+// ---------------------------------------------------------------------------
+// GATE_FIELDS / parseGateLine — the exact per-finding grammar. Fail-closed:
+// TODO, missing, or an unchosen template token is `unknown` plus an anomaly,
+// never a silently accepted guess.
+// ---------------------------------------------------------------------------
+
+assert.deepEqual([...GATE_FIELDS.reproduced], ["yes", "no", "partial"]);
+assert.deepEqual([...GATE_FIELDS.contractBreaker], ["yes", "no"]);
+assert.deepEqual([...GATE_FIELDS.action], ["fix-eligible", "record-only"]);
+
+{
+  const gate = parseGateLine(
+    "Convergence: 3/8 | Reproduced: yes (repro command) | Contract-breaker: no | Action: fix-eligible",
+    "F001",
+  );
+  assert.deepEqual(gate, {
+    convergence: 3, planned: 8, reproduced: "yes", contractBreaker: "no", action: "fix-eligible", anomalies: [],
+  });
+}
+
+// KILLING TEST: the unchosen template choice text "fix-eligible/record-only"
+// (a plausible human slip: copying the whole "pick one" placeholder instead
+// of choosing) must never parse as the chosen "fix-eligible" — the F006 bug
+// was exactly a prefix match (the old regex's [A-Za-z-]+ char class stops at
+// "/", capturing "fix-eligible" as if it were the whole, chosen value).
+// Mutate line: matchToken's regex from
+// `^${escapeRegExp(token)}\\s*(\\(.*\\))?$` to `^${escapeRegExp(token)}` (drop
+// the `$` end-anchor) and this assertion fails — the prefix "fix-eligible"
+// matches again.
+{
+  const gate = parseGateLine(
+    "Convergence: 5/10 | Reproduced: yes | Contract-breaker: no | Action: fix-eligible/record-only",
+    "F001",
+  );
+  assert.equal(gate.action, "unknown");
+  assert.ok(gate.anomalies.some((a) => a.includes('Action value "fix-eligible/record-only" is unknown')));
+  assert.equal(gate.convergence, 5);
+  assert.equal(gate.reproduced, "yes");
+  assert.equal(gate.contractBreaker, "no");
+}
+
+// The template's own real placeholder ("TODO fix-eligible/record-only") is a
+// different, simpler failure mode — TODO-prefixed and unfilled — also unknown.
+{
+  const gate = parseGateLine(
+    "Convergence: TODO n/10 | Reproduced: TODO yes/no | Contract-breaker: TODO yes/no | Action: TODO fix-eligible/record-only",
+    "F001",
+  );
+  assert.equal(gate.action, "unknown");
+  assert.ok(gate.anomalies.some((a) => a.includes('Action value "TODO fix-eligible/record-only" is unknown')));
+  assert.equal(gate.convergence, null);
+  assert.equal(gate.reproduced, "unknown");
+  assert.equal(gate.contractBreaker, "unknown");
+}
+
+// A gate line missing entirely is one anomaly, not a silent all-unknown pass.
+{
+  const gate = parseGateLine("Severity: P1 | Confidence: high\nno gate line here", "F002");
+  assert.equal(gate.action, "unknown");
+  assert.equal(gate.anomalies.length, 1);
+  assert.match(gate.anomalies[0], /no gate line/);
+}
+
+console.log("parseGateLine tests passed");
+
+// ---------------------------------------------------------------------------
+// parseReport — pre-gate declaration (item b). A report without Gate: v1 is
+// declared pre-gate: ONE anomaly for the whole file, findings not
+// decision-bearing, never inferred finding-by-finding from missing Action
+// lines.
+// ---------------------------------------------------------------------------
+
+{
+  const preGateText = [
+    "# Ultra Review: demo Round 1",
+    "",
+    "### F001 x",
+    "Convergence: 3/8 | Reproduced: yes | Action: fix-eligible",
+    "### F002 y",
+    "Convergence: 1/8 | Reproduced: no | Action: record-only",
+  ].join("\n");
+  const parsed = parseReport(preGateText);
+  assert.equal(parsed.preGate, true);
+  assert.deepEqual(parsed.findings, []);
+  assert.deepEqual(parsed.scoutsMissing, []);
+  assert.equal(parsed.anomalies.length, 1);
+  assert.match(parsed.anomalies[0], /pre-gate report \(no "Gate: v1" marker\) — 2 finding\(s\) declared not decision-bearing/);
+
+  const checked = checkReportGate(preGateText);
+  assert.deepEqual(checked, parsed);
+}
+
+console.log("pre-gate declaration tests passed");
+
+// ---------------------------------------------------------------------------
+// checkReportGate — killing tests from the architect ruling (E2).
+// ---------------------------------------------------------------------------
+
+const gated = (...findingBlocks) =>
+  [
+    "# Ultra Review: demo Round 1",
+    "",
+    GATE_MARKER_LINE,
+    "",
+    "## Findings",
+    "",
+    ...findingBlocks,
+    "## Coverage And Limits",
+    "",
+    "SCOUTS_MISSING: 0",
+    "",
+  ].join("\n");
+
+// KILLING TEST: round-trip parseReport(markdownTemplate(...)) — the freshly
+// scaffolded template (all TODO placeholders) must parse as all-unknown with
+// the EXACT anomaly set, never as a silently-accepted decision. This is THE
+// drift mechanism the ruling targets: an unfilled template must never read as
+// a completed one. Mutate line: the F001 gate-line placeholder in
+// markdownTemplate from "Contract-breaker: TODO yes/no" to
+// "Contract-breaker: no" and the Contract-breaker anomaly below disappears.
+{
+  const parsed = checkReportGate(templateMd);
+  assert.equal(parsed.preGate, false);
+  assert.equal(parsed.findings.length, 1);
+  assert.equal(parsed.findings[0].action, "unknown");
+  assert.deepEqual(
+    [...parsed.anomalies].sort(),
+    [
+      "F001: Action value \"TODO fix-eligible/record-only\" is unknown",
+      "F001: Contract-breaker value \"TODO yes/no\" is unknown",
+      "F001: Convergence value \"TODO n/10\" is not n/m",
+      "F001: Reproduced value \"TODO yes/no\" is unknown",
+      "SCOUTS_MISSING is unfilled — scout coverage cannot be verified",
+    ].sort(),
+  );
+}
+
+// KILLING TEST: "(not applied)" must never parse as applied — the F006
+// fail-open bug was a substring scan (/\bapplied\b/i) matching "applied"
+// inside "not applied". There is no dedicated "Applied:" line here, so the
+// result must be applied=false with no anomaly (prose is not grammar).
+// Mutate line: parseReport's `appliedMatch` block — replace the dedicated
+// `^[ \t]*Applied:\s*([^\n]*)$` line-anchor with a bare `/applied/i` substring
+// test, and this assertion flips to true.
+{
+  const text = gated(
+    "### F001 legacy note",
+    "Convergence: 5/10 | Reproduced: yes | Contract-breaker: no | Action: record-only",
+    "Trade-off of fixing now:",
+    "- none identified",
+    "Note: shipped previously (not applied) due to a missing prerequisite.",
+    "",
+  );
+  const { findings, anomalies } = checkReportGate(text);
+  assert.equal(findings[0].applied, false);
+  assert.ok(!anomalies.some((a) => a.includes("Applied")));
+}
+
+// A dedicated Applied: yes line is the only way to mark a finding applied.
+{
+  const text = gated(
+    "### F001 applied via dedicated line",
+    "Convergence: 5/10 | Reproduced: yes | Contract-breaker: no | Action: record-only",
+    "Applied: yes",
+    "",
+    "## Applied fixes",
+    "",
+    "| Finding | Fix |",
+    "|---|---|",
+    "| F002 | table-agnostic row must NOT mark F001 applied |",
+    "",
+  );
+  const { findings } = checkReportGate(text);
+  assert.equal(findings[0].applied, true);
+}
+
+// KILLING TEST: seeded below-gate fix-eligible -> disagreement anomaly. A
+// hand-written "fix-eligible" that the gate math computes as "record-only"
+// (Convergence 1 < 3, no contract-breaker) is downgraded to the computed
+// value, and the disagreement is reported rather than silently accepted —
+// this is the exact round-1 failure mode (3 of 12 fixes below the bar).
+{
+  const text = gated(
+    "### F003 below the bar",
+    "Convergence: 1/10 | Reproduced: yes | Contract-breaker: no | Action: fix-eligible",
+    "",
+  );
+  const { findings, anomalies } = checkReportGate(text);
+  assert.equal(findings[0].action, "record-only");
+  assert.ok(anomalies.some((a) => a.includes('F003: Action "fix-eligible" disagrees with computed "record-only"')));
+}
+
+// Trade-off is required on a (computed) fix-eligible finding, else an anomaly.
+{
+  const text = gated(
+    "### F004 no trade-off",
+    "Convergence: 4/10 | Reproduced: yes | Contract-breaker: no | Action: fix-eligible",
+    "",
+  );
+  const { findings, anomalies } = checkReportGate(text);
+  assert.equal(findings[0].action, "fix-eligible");
+  assert.ok(anomalies.some((a) => a.includes('F004: fix-eligible with no "Trade-off of fixing now" statement')));
+}
+
+console.log("checkReportGate killing tests passed");

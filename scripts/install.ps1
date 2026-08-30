@@ -34,7 +34,10 @@ $teamSupportFiles = @(
   "governance-graph.mjs",
   "remote-paseo.mjs",
   "model-routing.mjs",
-  "team-scripts-path.mjs"
+  "team-scripts-path.mjs",
+  "eod-digest.mjs",
+  "preflight.mjs",
+  "check-report-gates.mjs"
 )
 
 New-Item -ItemType Directory -Force -Path $claudeTeamDir, $claudePromptDir, $claudeScriptsDir, (Join-Path $claudeTeamDir "state"), $claudeSkillsDir | Out-Null
@@ -80,23 +83,52 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
   $packVersion = (& node -p "$readManifest.version" $manifestPath).Trim()
   $packDigest = (& node -p "$readManifest.policyDigest" $manifestPath).Trim()
   # state/ is runtime-mutable; it must never enter config history.
-  Set-Content -Path (Join-Path $claudeTeamDir ".gitignore") -Value "state/" -Encoding utf8
-  if (Test-Path (Join-Path $claudeTeamDir ".git")) {
+  # Append-if-absent: a user's pre-existing .gitignore is their file, never
+  # truncated (pack-ship F008).
+  $gitignorePath = Join-Path $claudeTeamDir ".gitignore"
+  $needsStateLine = $true
+  if (Test-Path $gitignorePath) {
+    $existing = Get-Content $gitignorePath -ErrorAction SilentlyContinue
+    if ($existing -contains "state/") { $needsStateLine = $false }
+  }
+  if ($needsStateLine) { Add-Content -Path $gitignorePath -Value "state/" -Encoding utf8 }
+  $versioningRepo = "own"
+  $gitEntry = Join-Path $claudeTeamDir ".git"
+  if (Test-Path $gitEntry) {
+    if (-not (Test-Path $gitEntry -PathType Container)) {
+      # .git as a FILE means a linked worktree or submodule of some OTHER
+      # repository — foreign, hands off (pack-ship F008).
+      $versioningRepo = "foreign"
+    } else {
+      $topLevel = (& git -C $claudeTeamDir rev-parse --show-toplevel 2>$null)
+      if ($LASTEXITCODE -ne 0 -or -not $topLevel) { $versioningRepo = "foreign" }
+      else {
+        $resolvedDir = (Resolve-Path $claudeTeamDir).Path.TrimEnd('\','/')
+        $resolvedTop = (Resolve-Path $topLevel.Trim()).Path.TrimEnd('\','/')
+        if ($resolvedDir -ne $resolvedTop) { $versioningRepo = "foreign" }
+      }
+    }
     $commitMessage = "refresh $packVersion $packDigest"
   } else {
-    # Exact-directory test on purpose: a deploy dir nested inside some parent
-    # repo must still get its OWN repo, not commits into the parent.
+    # No .git at all: the deploy dir gets its OWN repo, even nested inside
+    # some parent checkout — that is what keeps routing changes revertable.
     & git -C $claudeTeamDir init --quiet
     if ($LASTEXITCODE -ne 0) { Write-Error "[paseo-claude-team] git init failed in $claudeTeamDir"; exit 1 }
     $commitMessage = "install $packVersion $packDigest"
   }
-  & git -C $claudeTeamDir add -A
-  # Pinned identity + signing off so the commit succeeds deterministically on
-  # hosts with no global git config; --allow-empty keeps a no-change refresh
-  # auditable instead of failing the install.
-  & git -C $claudeTeamDir -c user.name="paseo-claude-team installer" -c user.email="installer@paseo-claude-team.invalid" -c commit.gpgsign=false commit --quiet --allow-empty -m $commitMessage
-  if ($LASTEXITCODE -ne 0) { Write-Error "[paseo-claude-team] deployed-config git commit failed"; exit 1 }
-  Write-Host "[paseo-claude-team] deployed-config commit: $commitMessage"
+  if ($versioningRepo -eq "foreign") {
+    Write-Host "[paseo-claude-team] WARNING: $claudeTeamDir belongs to another repository (worktree/submodule/nested checkout) - skipping deployed-config versioning; managing that history is yours"
+  } else {
+    # Stage only installer-owned paths — never a user's own files in the
+    # deploy dir (pack-ship F008: no blanket add -A).
+    & git -C $claudeTeamDir add -A -- prompts scripts manifest.json .gitignore claude-team-hook.mjs claude-policy.mts policy-core.mts settings.claude-team.json
+    # Pinned identity + signing off so the commit succeeds deterministically on
+    # hosts with no global git config; --allow-empty keeps a no-change refresh
+    # auditable instead of failing the install.
+    & git -C $claudeTeamDir -c user.name="paseo-claude-team installer" -c user.email="installer@paseo-claude-team.invalid" -c commit.gpgsign=false commit --quiet --allow-empty -m $commitMessage
+    if ($LASTEXITCODE -ne 0) { Write-Error "[paseo-claude-team] deployed-config git commit failed"; exit 1 }
+    Write-Host "[paseo-claude-team] deployed-config commit: $commitMessage"
+  }
 } else {
   Write-Host "[paseo-claude-team] WARNING: git not found - deployed config at $claudeTeamDir is unversioned; routing changes are not revertable"
 }

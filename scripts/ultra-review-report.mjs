@@ -52,6 +52,17 @@ export function slugify(value) {
 
 const toPosix = (value) => value.split(sep).join(posix.sep);
 
+/** A yy-mm-dd slug round-trips through Date: "26-99-99" matches the shape but
+ * is not a calendar date, and must fail-closed rather than silently produce a
+ * report path nobody dated. */
+function isValidDateSlug(value) {
+	if (!/^\d{2}-\d{2}-\d{2}$/.test(String(value ?? ""))) return false;
+	const [yy, mm, dd] = String(value).split("-").map(Number);
+	const year = 2000 + yy;
+	const date = new Date(Date.UTC(year, mm - 1, dd));
+	return date.getUTCFullYear() === year && date.getUTCMonth() === mm - 1 && date.getUTCDate() === dd;
+}
+
 /**
  * Next round number for this review name, plus the prior reports in order.
  *
@@ -201,6 +212,215 @@ export function findingAction({ convergence, reproduced, contractBreaker = false
 	return "record-only";
 }
 
+/**
+ * The report artifact's grammar version marker. A report header carrying this
+ * line opts into the strict gate-line grammar below; a report without it
+ * predates the grammar entirely and is declared PRE-GATE by parseReport (one
+ * anomaly for the whole file, findings not decision-bearing) rather than
+ * scanned finding-by-finding — inferring gate compliance from the absence of
+ * Action lines is exactly the fail-open path this replaces.
+ */
+export const GATE_MARKER_LINE = "Gate: v1";
+
+/** Exact token sets for the mandatory per-finding gate line. Any field value
+ * outside these sets — including TODO, empty, or an unchosen template
+ * placeholder — is `unknown` plus an anomaly, never a silently accepted guess. */
+export const GATE_FIELDS = Object.freeze({
+	reproduced: Object.freeze(["yes", "no", "partial"]),
+	contractBreaker: Object.freeze(["yes", "no"]),
+	action: Object.freeze(["fix-eligible", "record-only"]),
+});
+
+const GATE_LINE_RE =
+	/^[ \t]*Convergence:\s*([^\n|]*)\|\s*Reproduced:\s*([^\n|]*)\|\s*Contract-breaker:\s*([^\n|]*)\|\s*Action:\s*([^\n]*)$/m;
+
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A field value matches only when the WHOLE trimmed segment is the token,
+ * optionally followed by a parenthetical comment — a token that is merely a
+ * PREFIX of the segment (e.g. the unchosen template placeholder
+ * "fix-eligible/record-only") must not match. */
+function matchToken(segment, allowed) {
+	const trimmed = String(segment ?? "").trim();
+	for (const token of allowed) {
+		if (new RegExp(`^${escapeRegExp(token)}\\s*(\\(.*\\))?$`).test(trimmed)) return token;
+	}
+	return null;
+}
+
+function matchConvergence(segment) {
+	const trimmed = String(segment ?? "").trim();
+	const match = /^(\d+)\/(\d+)\s*(\(.*\))?$/.exec(trimmed);
+	if (!match) return null;
+	return { convergence: Number(match[1]), planned: Number(match[2]) };
+}
+
+/**
+ * Parse one finding's mandatory gate line. Fail-closed: a missing line, or
+ * any field that is not exactly one of its listed tokens, becomes `unknown`
+ * for that field plus an anomaly — ambiguous text is never decisive.
+ */
+export function parseGateLine(block, id) {
+	const anomalies = [];
+	const match = GATE_LINE_RE.exec(String(block ?? ""));
+	if (!match) {
+		anomalies.push(`${id}: no gate line (Convergence | Reproduced | Contract-breaker | Action) — cannot verify`);
+		return { convergence: null, planned: null, reproduced: "unknown", contractBreaker: "unknown", action: "unknown", anomalies };
+	}
+	const [, convergenceSeg, reproducedSeg, contractBreakerSeg, actionSeg] = match;
+
+	const convergence = matchConvergence(convergenceSeg);
+	if (!convergence) anomalies.push(`${id}: Convergence value "${convergenceSeg.trim()}" is not n/m`);
+
+	const reproduced = matchToken(reproducedSeg, GATE_FIELDS.reproduced);
+	if (!reproduced) anomalies.push(`${id}: Reproduced value "${reproducedSeg.trim()}" is unknown`);
+
+	const contractBreaker = matchToken(contractBreakerSeg, GATE_FIELDS.contractBreaker);
+	if (!contractBreaker) anomalies.push(`${id}: Contract-breaker value "${contractBreakerSeg.trim()}" is unknown`);
+
+	const action = matchToken(actionSeg, GATE_FIELDS.action);
+	if (!action) anomalies.push(`${id}: Action value "${actionSeg.trim()}" is unknown`);
+
+	return {
+		convergence: convergence?.convergence ?? null,
+		planned: convergence?.planned ?? null,
+		reproduced: reproduced ?? "unknown",
+		contractBreaker: contractBreaker ?? "unknown",
+		action: action ?? "unknown",
+		anomalies,
+	};
+}
+
+/**
+ * Structural parse of one ultra-review report — the ONE place this grammar is
+ * read. eod-digest and any future consumer call this (or checkReportGate)
+ * instead of hand-rolling a second regex over the same artifact.
+ */
+export function parseReport(text) {
+	const source = String(text ?? "");
+	if (!new RegExp(`^${escapeRegExp(GATE_MARKER_LINE)}\\s*$`, "m").test(source)) {
+		const findingCount = [...source.matchAll(/^###\s+F\d+\b/gm)].length;
+		return {
+			preGate: true,
+			findings: [],
+			scoutsMissing: [],
+			anomalies: [`pre-gate report (no "${GATE_MARKER_LINE}" marker) — ${findingCount} finding(s) declared not decision-bearing`],
+		};
+	}
+
+	const anomalies = [];
+	const scoutsMissing = [];
+	let sawScoutsMissing = false;
+	// [ \t]*, not \s* — an empty value must not bleed across the newline into
+	// the next line's content (a real latent bug: SCOUTS_MISSING: followed
+	// immediately by another line would otherwise swallow that line as "the
+	// value" instead of reporting the field as unfilled).
+	for (const match of source.matchAll(/SCOUTS_MISSING:[ \t]*([^`\n]*)/g)) {
+		sawScoutsMissing = true;
+		const value = match[1].trim();
+		if (value === "" || /^TODO\b/.test(value)) {
+			anomalies.push("SCOUTS_MISSING is unfilled — scout coverage cannot be verified");
+		} else if (!/^(0|none)$/i.test(value)) {
+			scoutsMissing.push(value);
+		}
+	}
+	if (!sawScoutsMissing) {
+		anomalies.push("no SCOUTS_MISSING line — scout coverage cannot be verified");
+	}
+
+	const findings = [];
+	const headings = [...source.matchAll(/^###\s+(F\d+)\b([^\n]*)$/gm)];
+	for (let i = 0; i < headings.length; i++) {
+		const [headingLine, id, rest] = headings[i];
+		const start = headings[i].index + headingLine.length;
+		const end = i + 1 < headings.length ? headings[i + 1].index : source.length;
+		let block = source.slice(start, end);
+		const sectionBreak = block.search(/^##\s/m);
+		if (sectionBreak !== -1) block = block.slice(0, sectionBreak);
+
+		const title = rest.replace(/^[\s·—:|[\]-]+/, "").trim();
+		const gate = parseGateLine(block, id);
+		for (const note of gate.anomalies) anomalies.push(note);
+
+		// Applied is a dedicated line, never inferred from prose (an unrelated
+		// "(not applied)" mention must not read as applied) or from a summary
+		// table row (which is agnostic to which table it is).
+		let applied = false;
+		const appliedMatch = block.match(/^[ \t]*Applied:\s*([^\n]*)$/im);
+		if (appliedMatch) {
+			const value = appliedMatch[1].trim().toLowerCase();
+			if (value === "yes") applied = true;
+			else if (value === "no") applied = false;
+			else anomalies.push(`${id}: Applied value "${appliedMatch[1].trim()}" is unknown — treated as not applied`);
+		}
+
+		const tradeOffMatch = block.match(/Trade-off of fixing now:\s*\n[ \t]*-\s*([^\n]*)/);
+		const tradeOffText = tradeOffMatch ? tradeOffMatch[1].trim() : "";
+		const hasTradeOff = tradeOffText !== "" && !/^TODO\b/i.test(tradeOffText);
+
+		findings.push({
+			id,
+			title,
+			applied,
+			hasTradeOff,
+			convergence: gate.convergence,
+			planned: gate.planned,
+			reproduced: gate.reproduced,
+			contractBreaker: gate.contractBreaker,
+			writtenAction: gate.action,
+		});
+	}
+
+	return { preGate: false, findings, scoutsMissing, anomalies };
+}
+
+/**
+ * The gate's first production consumer: recomputes findingAction() over every
+ * parsed finding instead of trusting the hand-written Action token — a
+ * hand-written value that disagrees with the computed one is an anomaly, and
+ * the computed value is what downstream tooling (eod-digest, eventually CI)
+ * acts on. A pre-gate report passes through unchanged: there is nothing to
+ * recompute against a grammar the report predates.
+ */
+export function checkReportGate(text) {
+	const parsed = parseReport(text);
+	if (parsed.preGate) return parsed;
+
+	const anomalies = [...parsed.anomalies];
+	const findings = parsed.findings.map((finding) => {
+		const gateKnown =
+			Number.isFinite(finding.convergence) &&
+			GATE_FIELDS.reproduced.includes(finding.reproduced) &&
+			GATE_FIELDS.contractBreaker.includes(finding.contractBreaker);
+		const action = gateKnown
+			? findingAction({
+					convergence: finding.convergence,
+					reproduced: finding.reproduced === "yes",
+					contractBreaker: finding.contractBreaker === "yes",
+				})
+			: "unknown";
+
+		if (finding.writtenAction !== "unknown" && action !== "unknown" && finding.writtenAction !== action) {
+			anomalies.push(
+				`${finding.id}: Action "${finding.writtenAction}" disagrees with computed "${action}" (Convergence ${finding.convergence}/${finding.planned}, Reproduced ${finding.reproduced}, Contract-breaker ${finding.contractBreaker})`,
+			);
+		}
+		if (action === "fix-eligible" && !finding.hasTradeOff) {
+			anomalies.push(`${finding.id}: fix-eligible with no "Trade-off of fixing now" statement (required — write "none identified" if there is none)`);
+		}
+
+		return {
+			id: finding.id,
+			title: finding.title,
+			action,
+			applied: finding.applied,
+			reason: action === "unknown" ? "gate fields unknown or malformed — cannot verify" : null,
+		};
+	});
+
+	return { preGate: false, findings, scoutsMissing: parsed.scoutsMissing, anomalies };
+}
+
 export function markdownTemplate({
 	dateSlug,
 	reviewName,
@@ -226,6 +446,7 @@ Report path: ${reportPath}
 Review brief SHA256: ${reviewBriefSha256}
 Scouts launched: ${scoutCount}
 Directives: ${directiveCount}
+${GATE_MARKER_LINE}
 ${manifestHeader(manifest)}
 ## Prior Round Guard
 
@@ -257,15 +478,26 @@ If there are no candidates, write: No candidates reported.
 -->
 
 <!--
-CONVERGENCE GATE (mandatory on every finding):
-  Convergence: <n>/<scouts planned>   — independent scouts reaching this ROOT CAUSE
-  Reproduced:  yes | no               — Lead reproduced the failure on current bytes
-  Action:      fix-eligible | record-only   — computed, never hand-picked:
-               fix-eligible ⇔ Reproduced=yes AND (Convergence ≥ 3 OR contract-breaker)
+CONVERGENCE GATE (mandatory on every finding, exact grammar — checkReportGate()
+in ultra-review-report.mjs is the ONE parser; never hand-roll a second one):
+  Convergence: <n>/<scouts planned> | Reproduced: yes|no|partial |
+  Contract-breaker: yes|no | Action: fix-eligible|record-only
+Any field that is missing, TODO, or not one of its listed tokens becomes
+\`unknown\` plus an anomaly — ambiguous text is never decisive. Action is
+RECOMPUTED by findingAction(), never hand-picked:
+  fix-eligible ⇔ Reproduced=yes AND (Convergence ≥ 3 OR Contract-breaker=yes)
+A hand-written Action that disagrees with the computed value is itself an
+anomaly, and the computed value is what downstream tooling (eod-digest, and
+eventually CI) acts on — writing a plausible-looking token here does not make
+it true. \`partial\` reproduction is a real token; it never satisfies the gate.
 A record-only finding is NOT rejected — it waits for verification or round 2.
 Fixing below the gate is the "fix vô tội vạ" failure: one scout's plausible
 story plus an eager Lead. If ≥2 findings share one owning mechanism, STOP:
 dispatch an architect-Peer on the root question before fixing any of them.
+
+APPLIED is a separate, dedicated line inside the finding's own block —
+\`Applied: yes\` or \`Applied: no\` — never inferred from prose ("(not applied)"
+is not "applied") or from a summary table row.
 
 TRADE-OFF (second half of the gate): a fix-eligible finding is still not
 APPLIED until its "Trade-off of fixing now" line states what the fix costs or
@@ -279,7 +511,7 @@ question (round-1 F017).
 
 Severity: P? | Confidence: high/medium/low
 Reported by: TODO scout IDs
-Convergence: TODO n/${scoutCount} | Reproduced: TODO yes/no | Action: TODO fix-eligible/record-only
+Convergence: TODO n/${scoutCount} | Reproduced: TODO yes/no | Contract-breaker: TODO yes/no | Action: TODO fix-eligible/record-only
 Source pointer: TODO file:line
 Evidence:
 - TODO file:line and observed behavior, or unknown
@@ -354,8 +586,8 @@ export function parseArgs(argv) {
 	const directiveCount = Number(options.directiveCount);
 	if (!Number.isInteger(directiveCount) || directiveCount < 0) fail("USAGE", "--directive-count must be a non-negative integer");
 	options.directiveCount = directiveCount;
-	if (options.date !== null && options.date !== undefined && !/^\d{2}-\d{2}-\d{2}$/.test(options.date)) {
-		fail("USAGE", "--date must use yy-mm-dd format");
+	if (options.date !== null && options.date !== undefined && !isValidDateSlug(options.date)) {
+		fail("USAGE", "--date must be a valid yy-mm-dd calendar date");
 	}
 	return options;
 }

@@ -2,7 +2,7 @@
 // unrelated project cwd and must include remote-paseo dependencies.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -280,6 +280,9 @@ for (const [installer, pattern] of Object.entries(CLAUDE_SKILL_LOOP)) {
 
 	const expectedModels = {
 		"claude-supervisor": [
+			// F010: haiku leads this list on purpose — the Supervisor is the
+			// cheapest, most-dispatched monitor-only seat, and daily-ops pins it.
+			{ id: "claude-haiku-4-5", label: "Haiku 4.5" },
 			{ id: "claude-sonnet-5", label: "Sonnet 5" },
 			{ id: "claude-opus-5", label: "Opus 5" },
 		],
@@ -328,7 +331,18 @@ for (const [installer, pattern] of Object.entries(CLAUDE_SKILL_LOOP)) {
 	assert.ok(sh.includes('cp -f "$ROLE_PACK_ROOT/manifest.json" "$CLAUDE_TEAM_DIR/"'), "install.sh must install manifest.json into the deploy dir");
 	assert.ok(sh.includes("command -v git"), "install.sh must probe for git before versioning");
 	assert.ok(sh.includes('git -C "$CLAUDE_TEAM_DIR" init'), "install.sh must git-init the deploy dir (and only the deploy dir)");
-	assert.ok(sh.includes('git -C "$CLAUDE_TEAM_DIR" add -A'), "install.sh must stage the whole deploy dir");
+	// F008: stage installer-owned paths only — a bare `add -A` sweeps user
+	// content in the deploy dir into a pack-authored commit.
+	assert.ok(sh.includes('git -C "$CLAUDE_TEAM_DIR" add -A -- '), "install.sh must stage with an explicit installer-owned pathspec");
+	assert.ok(!/add -A\s*$/m.test(sh), "install.sh must never run a blanket add -A without a pathspec");
+	// F008: .git may be a FILE (linked worktree/submodule) — that repo is the
+	// user's, and versioning must be skipped loudly, never committed into.
+	assert.ok(sh.includes('[[ -e "$CLAUDE_TEAM_DIR/.git" ]]'), "install.sh must detect .git as file OR directory");
+	assert.ok(sh.includes("rev-parse --show-toplevel"), "install.sh must verify the deploy dir owns its repo before committing");
+	assert.ok(/belongs to another repository/.test(sh), "install.sh must warn and skip on a foreign repo");
+	// F008: never truncate a user's .gitignore.
+	assert.ok(sh.includes("grep -qx 'state/'"), "install.sh must append state/ to .gitignore only when absent");
+	assert.ok(!/printf 'state\/\\n' > /.test(sh), "install.sh must not truncate .gitignore with >");
 	assert.ok(sh.includes('COMMIT_MESSAGE="install $PACK_VERSION $PACK_DIGEST"'), "install.sh first commit must record install <version> <policyDigest>");
 	assert.ok(sh.includes('COMMIT_MESSAGE="refresh $PACK_VERSION $PACK_DIGEST"'), "install.sh refresh commit must record refresh <version> <policyDigest>");
 	assert.ok(sh.includes(".policyDigest"), "install.sh must read the policy digest from the installed manifest (jq-free)");
@@ -339,11 +353,114 @@ for (const [installer, pattern] of Object.entries(CLAUDE_SKILL_LOOP)) {
 	assert.ok(ps.includes('Copy-Item (Join-Path $RolePackRoot "manifest.json") $claudeTeamDir -Force'), "install.ps1 must install manifest.json into the deploy dir");
 	assert.ok(ps.includes("Get-Command git"), "install.ps1 must probe for git before versioning");
 	assert.ok(ps.includes("git -C $claudeTeamDir init"), "install.ps1 must git-init the deploy dir (and only the deploy dir)");
-	assert.ok(ps.includes("git -C $claudeTeamDir add -A"), "install.ps1 must stage the whole deploy dir");
+	assert.ok(ps.includes("git -C $claudeTeamDir add -A -- "), "install.ps1 must stage with an explicit installer-owned pathspec");
+	assert.ok(!/add -A\s*$/m.test(ps), "install.ps1 must never run a blanket add -A without a pathspec");
+	assert.ok(ps.includes("-PathType Container"), "install.ps1 must distinguish .git file (foreign worktree) from directory");
+	assert.ok(ps.includes("rev-parse --show-toplevel"), "install.ps1 must verify the deploy dir owns its repo before committing");
+	assert.ok(/belongs to another repository/.test(ps), "install.ps1 must warn and skip on a foreign repo");
+	assert.ok(ps.includes("Add-Content"), "install.ps1 must append to .gitignore, not truncate it");
+	assert.ok(!ps.includes('Set-Content -Path (Join-Path $claudeTeamDir ".gitignore")'), "install.ps1 must not truncate .gitignore with Set-Content");
 	assert.ok(ps.includes('$commitMessage = "install $packVersion $packDigest"'), "install.ps1 first commit must record install <version> <policyDigest>");
 	assert.ok(ps.includes('$commitMessage = "refresh $packVersion $packDigest"'), "install.ps1 refresh commit must record refresh <version> <policyDigest>");
 	assert.ok(ps.includes(".policyDigest"), "install.ps1 must read the policy digest from the installed manifest (jq-free)");
 	assert.ok(/WARNING: git not found[^\n]*not revertable/.test(ps), "install.ps1 must warn loudly that routing changes are not revertable when git is missing");
+}
+
+// ---------------------------------------------------------------------------
+// Reverse direction: every script the pack tells anyone to run from
+// PASEO_TEAM_SCRIPTS_DIR must actually be shipped by BOTH installers.
+// The forward-only checks above (shipped -> exists, shipped -> deps shipped)
+// let eod-digest.mjs go unshipped while the suite stayed green — the round-1
+// F006 class, third episode (pack-ship F001). This closes the class, not the
+// instance: a new documented entrypoint fails here until it ships.
+// ---------------------------------------------------------------------------
+{
+	// Scripts that may be referenced without shipping (currently none — keep
+	// the list explicit so an intentional exception is a visible decision).
+	const NOT_SHIPPED = new Set();
+
+	const referenced = new Set();
+	const walk = (dir) => {
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			const path = join(dir, entry.name);
+			if (entry.isDirectory()) walk(path);
+			else if (/\.(md|mjs|mts|json|sh|ps1|yaml)$/.test(entry.name)) {
+				const text = readFileSync(path, "utf8");
+				for (const match of text.matchAll(/PASEO_TEAM_SCRIPTS_DIR[>/}"'`]*\/([a-z0-9-]+\.mjs)/g)) {
+					referenced.add(match[1]);
+				}
+			}
+		}
+	};
+	for (const dir of ["scripts", "docs", "prompts", "skills", "templates"]) {
+		if (existsSync(join(root, dir))) walk(join(root, dir));
+	}
+	assert.ok(referenced.size >= 5, `reference scan looks broken (found only ${referenced.size} referenced scripts)`);
+
+	for (const installer of ["install.sh", "install.ps1"]) {
+		const text = readFileSync(join(root, "scripts", installer), "utf8");
+		const shipped = new Set([...text.matchAll(/^\s*"?([a-z0-9-]+\.mjs)"?,?\s*$/gm)].map((m) => m[1]));
+		for (const file of referenced) {
+			if (NOT_SHIPPED.has(file)) continue;
+			assert.ok(shipped.has(file), `${installer}: ${file} is invoked via PASEO_TEAM_SCRIPTS_DIR but is not in the ship list`);
+		}
+		// The deployed attribution ritual (preflight --version) must work off a
+		// deployed host, not only a source checkout.
+		assert.ok(shipped.has("preflight.mjs"), `${installer}: preflight.mjs must ship (policy-digest attribution on deployed hosts)`);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// EXECUTION-based contract (F011): the git-versioning behavior above is no
+// longer proven by text-matching alone — install.sh actually runs in a
+// sandbox. Static asserts would stay green with the logic in a dead branch;
+// these cannot. Skipped where bash is unavailable (Windows), where the
+// static asserts remain the floor.
+// ---------------------------------------------------------------------------
+if (process.platform !== "win32") {
+	const run = (env) =>
+		execFileSync("bash", [join(root, "scripts", "install.sh"), "--skip-ocr"], {
+			env: { ...process.env, ...env },
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+	const gitOut = (dir, args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim();
+
+	const sandbox = mkdtempSync(join(tmpdir(), "paseo-install-exec-"));
+	const home = join(sandbox, "home");
+	mkdirSync(home, { recursive: true });
+	const deploy = join(sandbox, "deploy");
+	const skills = join(sandbox, "skills");
+	const env = { HOME: home, CLAUDE_TEAM_DIR: deploy, CLAUDE_SKILLS_DIR: skills };
+
+	// Fresh install: own repo, install commit, digest recorded.
+	run(env);
+	assert.match(gitOut(deploy, ["log", "--format=%s", "-1"]), /^install \d+\.\d+\.\d+ sha256:[0-9a-f]{64}$/);
+	assert.ok(existsSync(join(deploy, "scripts", "eod-digest.mjs")), "eod-digest.mjs must actually deploy");
+	assert.ok(existsSync(join(deploy, "scripts", "preflight.mjs")), "preflight.mjs must actually deploy");
+
+	// Refresh with a user file present: refresh commit, user file NOT swept.
+	writeFileSync(join(deploy, "user-notes.txt"), "mine\n");
+	run(env);
+	assert.match(gitOut(deploy, ["log", "--format=%s", "-1"]), /^refresh /);
+	assert.ok(!gitOut(deploy, ["ls-files"]).includes("user-notes.txt"), "installer must not commit user files (F008)");
+
+	// Pre-existing .gitignore must be appended, never truncated.
+	writeFileSync(join(deploy, ".gitignore"), "keep-me/\n");
+	run(env);
+	const ignore = readFileSync(join(deploy, ".gitignore"), "utf8");
+	assert.ok(ignore.includes("keep-me/") && ignore.includes("state/"), ".gitignore must keep user lines and gain state/ (F008)");
+
+	// Worktree deploy dir belongs to another repo: skip loudly, parent untouched.
+	const parent = join(sandbox, "parent");
+	execFileSync("git", ["init", "-q", parent]);
+	execFileSync("git", ["-C", parent, "-c", "user.email=u@x", "-c", "user.name=u", "commit", "-q", "--allow-empty", "-m", "base"]);
+	const wt = join(sandbox, "wt-deploy");
+	execFileSync("git", ["-C", parent, "worktree", "add", "-q", "-b", "wt", wt]);
+	const out = run({ HOME: home, CLAUDE_TEAM_DIR: wt, CLAUDE_SKILLS_DIR: join(sandbox, "skills2") });
+	void out;
+	assert.equal(gitOut(parent, ["rev-list", "--count", "HEAD"]), "1", "foreign worktree parent must gain no commits (F008)");
+	assert.ok(!existsSync(join(wt, ".git", "HEAD")) || readFileSync(join(wt, ".git"), "utf8").startsWith("gitdir:"), "worktree .git file must survive untouched");
 }
 
 console.log("installer contract tests passed");

@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import {
   buildGraph,
   collectGraph,
+  enforcementClass,
   inScope,
   markStale,
   normalizeAgent,
   parseArgs,
+  providerFamily,
   roleFromProvider,
 } from "../scripts/governance-graph.mjs";
 
@@ -26,6 +29,33 @@ assert.equal(roleFromProvider(undefined), "unknown");
 assert.equal(roleFromProvider("misleading"), "unknown");
 
 // ---------------------------------------------------------------------------
+// Provider family and enforcement class. Role says what a seat is FOR;
+// enforcement says whether its Mode means anything, and the two are read off
+// opposite ends of the same provider string.
+// ---------------------------------------------------------------------------
+
+assert.equal(providerFamily("claude-peer"), "claude");
+assert.equal(providerFamily("claude-lead/claude-opus-5"), "claude");
+assert.equal(providerFamily("omp/google-antigravity/gemini-3.7-flash"), "omp");
+assert.equal(providerFamily("omp-peer"), "omp");
+assert.equal(providerFamily("codex"), "codex");
+
+// The pack's own three providers set PASEO_CLAUDE_ROLE, which arms the hook.
+assert.equal(enforcementClass("claude-peer"), "pack-enforced");
+assert.equal(enforcementClass("claude-lead/claude-opus-5"), "pack-enforced");
+assert.equal(enforcementClass("claude-supervisor"), "pack-enforced");
+// Documented as bounded by prompt + session mode only.
+assert.equal(enforcementClass("omp/google-antigravity/gemini-3.7-flash"), "unenforced");
+assert.equal(enforcementClass("agy"), "unenforced");
+assert.equal(enforcementClass("codex"), "unenforced");
+// Bare `claude` sets no role env in the pack's config, but an operator's own
+// config might; unproven either way is `unknown`, never a convenient guess.
+assert.equal(enforcementClass("claude"), "unknown");
+assert.equal(enforcementClass("grok"), "unknown");
+assert.equal(enforcementClass(""), "unknown");
+assert.equal(enforcementClass(undefined), "unknown");
+
+// ---------------------------------------------------------------------------
 // Normalization across Paseo's two casings: `ls` is lowercase, `inspect` is
 // PascalCase, and only `inspect` carries ParentAgentId.
 // ---------------------------------------------------------------------------
@@ -35,18 +65,40 @@ const detail = {
   Id: "a1", Name: "T-1 fix", Provider: "claude-peer", Model: "claude-sonnet-5",
   Status: "Running", Mode: "acceptEdits", Cwd: "/home/u/proj",
   UpdatedAt: "2026-08-20T00:00:00.000Z", ParentAgentId: "lead-1", PendingPermissions: [],
+  AvailableModes: [{ id: "plan", label: "Plan Mode" }, { id: "acceptEdits", label: "Accept File Edits" }],
 };
-const norm = normalizeAgent(listed, detail);
+const norm = normalizeAgent(listed, detail, new Map([["/home/u/proj", { canonical: "/canon/proj", error: null }]]));
 assert.equal(norm.role, "peer");
+assert.equal(norm.enforcement, "pack-enforced");
 assert.equal(norm.status, "running", "status is lowercased across both shapes");
 assert.equal(norm.parentAgentId, "lead-1");
 assert.equal(norm.model, "claude-sonnet-5");
 assert.equal(norm.inspectOk, true);
+assert.equal(norm.canonicalCwd, "/canon/proj", "identity is the resolved path");
+assert.equal(norm.cwd, "/home/u/proj", "the raw spelling survives for display");
+assert.equal(norm.cwdError, null);
+assert.equal(norm.modeLabel, "Accept File Edits", "the agent's own name for its mode");
+
+// A cwd that will not resolve keeps the error and NEVER falls back to the raw
+// string as an identity: null canonical means cannot-verify, not "elsewhere".
+{
+  const unresolvable = normalizeAgent(listed, detail, new Map([["/home/u/proj", { canonical: null, error: "ENOENT" }]]));
+  assert.equal(unresolvable.canonicalCwd, null);
+  assert.equal(unresolvable.cwdError, "ENOENT");
+}
+// No map at all (a caller that never canonicalized) is also cannot-verify.
+assert.equal(normalizeAgent(listed, detail).canonicalCwd, null);
+assert.match(normalizeAgent(listed, detail).cwdError, /never canonicalized/);
 
 const uninspected = normalizeAgent(listed, null);
 assert.equal(uninspected.inspectOk, false);
 assert.equal(uninspected.parentAgentId, null, "no inspect means no parentage, never a guess");
 assert.equal(uninspected.role, "peer", "role still comes from the list provider");
+assert.equal(uninspected.modeLabel, null);
+assert.ok(
+  uninspected.cwd.endsWith(join("proj")) && !uninspected.cwd.startsWith("~"),
+  "the `~/x` spelling ls returns is expanded before anything compares it",
+);
 
 // Staleness is suspected, never asserted, and only for inspected running agents.
 assert.equal(markStale(norm, { now: Date.parse("2026-08-20T00:01:00.000Z") }).stale, false);
@@ -56,6 +108,8 @@ assert.equal(markStale({ ...norm, status: "idle" }, { now: Date.parse("2026-08-2
 
 // ---------------------------------------------------------------------------
 // Scoping is client-side: `paseo ls --json` has no server-side workspace scope.
+// Canonical identity decides membership whenever both sides have one; the
+// lexical compare survives only as the answer for paths nothing could resolve.
 // ---------------------------------------------------------------------------
 
 assert.equal(inScope({ cwd: "/a/b" }, { all: false, cwd: "/a/b" }), true);
@@ -63,16 +117,28 @@ assert.equal(inScope({ cwd: "/a/b" }, { all: false, cwd: "/a/c" }), false);
 assert.equal(inScope({ cwd: "/a/c" }, { all: true, cwd: "/a/b" }), true);
 assert.equal(inScope({ cwd: "/a/b/" }, { all: false, cwd: "/a/b" }), true, "trailing slash is the same workspace");
 
+// Two spellings of one directory: identical canonical → in scope, even though
+// the raw strings share nothing but their target.
+assert.equal(
+  inScope({ cwd: "~/proj", canonicalCwd: "/canon/proj" }, { all: false, cwd: "/link/proj", scopeCanonical: "/canon/proj" }),
+  true,
+  "canonical identity beats the spelling on both sides",
+);
+assert.equal(
+  inScope({ cwd: "/canon/proj", canonicalCwd: "/canon/proj" }, { all: false, cwd: "/canon/other", scopeCanonical: "/canon/other" }),
+  false,
+);
+
 // ---------------------------------------------------------------------------
 // Graph shape.
 // ---------------------------------------------------------------------------
 
 const agents = [
-  { id: "sup", shortId: "sup", role: "supervisor", provider: "claude-supervisor", status: "idle", cwd: "/w", pendingPermissions: [] },
-  { id: "lead-1", shortId: "lead-1", role: "lead", provider: "claude-lead", status: "running", cwd: "/w", pendingPermissions: [] },
-  { id: "peer-1", shortId: "peer-1", role: "peer", provider: "claude-peer", status: "running", cwd: "/w", parentAgentId: "lead-1", pendingPermissions: [] },
-  { id: "peer-2", shortId: "peer-2", role: "peer", provider: "claude-peer", status: "waiting", cwd: "/w", parentAgentId: null, pendingPermissions: [] },
-  { id: "rando", shortId: "rando", role: "unknown", provider: "claude", status: "idle", cwd: "/w", parentAgentId: "lead-1", pendingPermissions: [] },
+  { id: "sup", shortId: "sup", role: "supervisor", provider: "claude-supervisor", status: "idle", cwd: "/w", canonicalCwd: "/w", pendingPermissions: [] },
+  { id: "lead-1", shortId: "lead-1", role: "lead", provider: "claude-lead", status: "running", cwd: "/w", canonicalCwd: "/w", pendingPermissions: [] },
+  { id: "peer-1", shortId: "peer-1", role: "peer", provider: "claude-peer", status: "running", cwd: "/w", canonicalCwd: "/w", parentAgentId: "lead-1", pendingPermissions: [] },
+  { id: "peer-2", shortId: "peer-2", role: "peer", provider: "claude-peer", status: "waiting", cwd: "/w", canonicalCwd: "/w", parentAgentId: null, pendingPermissions: [] },
+  { id: "rando", shortId: "rando", role: "unknown", provider: "claude", status: "idle", cwd: "/w", canonicalCwd: "/w", parentAgentId: "lead-1", pendingPermissions: [] },
 ];
 const graph = buildGraph(agents, { daemon: { status: "running", version: "0.4.0" }, scope: "/w" });
 const kinds = (kind) => graph.edges.filter((e) => e.data.kind === kind);
@@ -107,9 +173,39 @@ assert.equal(
   "unknown-role agents do not checkpoint into the governed workspace",
 );
 
+// One directory, three spellings, ONE durable-truth node. Before canonical
+// ingest each spelling was its own workspace — and its own A1 scope key.
+{
+  const split = buildGraph(
+    [
+      { id: "p1", shortId: "p1", role: "peer", provider: "claude-peer", status: "running", cwd: "~/w", canonicalCwd: "/w", pendingPermissions: [] },
+      { id: "p2", shortId: "p2", role: "peer", provider: "claude-peer", status: "running", cwd: "/w/", canonicalCwd: "/w", pendingPermissions: [] },
+      { id: "p3", shortId: "p3", role: "peer", provider: "claude-peer", status: "running", cwd: "/link/w", canonicalCwd: "/w", pendingPermissions: [] },
+    ],
+    { daemon: { status: "running" }, scope: "/w" },
+  );
+  const workspaceNodes = split.nodes.filter((n) => n.id.startsWith("workspace:"));
+  assert.equal(workspaceNodes.length, 1, "three spellings of one directory are one workspace");
+  assert.equal(workspaceNodes[0].id, "workspace:/w");
+  assert.equal(split.edges.filter((e) => e.data.kind === "checkpoints").length, 3);
+}
+
+// A path nothing could resolve keeps its own node and SAYS so, rather than
+// being merged into a neighbour on a guess.
+{
+  const unresolved = buildGraph(
+    [{ id: "p1", shortId: "p1", role: "peer", provider: "claude-peer", status: "running", cwd: "/gone", canonicalCwd: null, pendingPermissions: [] }],
+    { daemon: { status: "running" }, scope: "/w" },
+  );
+  const node = unresolved.nodes.find((n) => n.id.startsWith("workspace:"));
+  assert.equal(node.id, "workspace:unresolved:/gone");
+  assert.match(node.data.detail, /could not be resolved/);
+  assert.equal(node.data.canonical, null);
+}
+
 // A parent outside the current scope must not produce a dangling edge.
 const scopedOut = buildGraph(
-  [{ id: "peer-x", shortId: "px", role: "peer", provider: "claude-peer", status: "running", cwd: "/w", parentAgentId: "lead-elsewhere", pendingPermissions: [] }],
+  [{ id: "peer-x", shortId: "px", role: "peer", provider: "claude-peer", status: "running", cwd: "/w", canonicalCwd: "/w", parentAgentId: "lead-elsewhere", pendingPermissions: [] }],
   { daemon: { status: "running" }, scope: "/w" },
 );
 assert.equal(scopedOut.edges.filter((e) => e.data.kind === "delegates").length, 0);

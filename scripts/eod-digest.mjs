@@ -18,6 +18,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { isEntrypoint } from "./lib-common.mjs";
+import { checkReportGate } from "./ultra-review-report.mjs";
+import { policyDigest } from "./policy-digest.mjs";
 
 export const EOD_DIGEST_ERROR_CODES = Object.freeze(["USAGE", "WORKSPACE_MISSING"]);
 export const MAX_COMMIT_SUBJECTS = 20;
@@ -42,77 +44,15 @@ function todaySlug(now = new Date()) {
 	return `${String(now.getFullYear()).slice(2)}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-/**
- * Parse one ultra-review report's findings and scout accounting.
- *
- * A finding is a `### F<nnn> …` heading; its Action is the first
- * `Action: <token>` inside the block. "Applied" is recognized three ways —
- * `applied` on the Action line itself, an `Applied: yes` line in the block,
- * or the finding ID as the first cell of a table row (the "Applied fixes"
- * table in real reports). Fail-closed: a missing/TODO Action is `unknown`,
- * never a pass; an unrecognized Action value is additionally an anomaly.
- *
- * SCOUTS_MISSING: `0`/`none` is clean; a non-empty value is an anomaly; an
- * unfilled value or an absent line means scout coverage cannot be verified,
- * which is itself an anomaly rather than silence.
- */
-export function parseReportFindings(text) {
-	const source = String(text ?? "");
-	const findings = [];
-	const scoutsMissing = [];
-	const anomalies = [];
-
-	let sawScoutsMissing = false;
-	for (const match of source.matchAll(/SCOUTS_MISSING:\s*([^`\n]*)/g)) {
-		sawScoutsMissing = true;
-		const value = match[1].trim();
-		if (value === "" || /^TODO\b/.test(value)) {
-			anomalies.push("SCOUTS_MISSING is unfilled — scout coverage cannot be verified");
-		} else if (!/^(0|none)$/i.test(value)) {
-			scoutsMissing.push(value);
-		}
-	}
-	if (!sawScoutsMissing) {
-		anomalies.push("no SCOUTS_MISSING line — scout coverage cannot be verified");
-	}
-
-	const appliedIds = new Set();
-	for (const match of source.matchAll(/^\|\s*(F\d+)\b/gm)) appliedIds.add(match[1]);
-
-	const headings = [...source.matchAll(/^###\s+(F\d+)\b([^\n]*)$/gm)];
-	for (let i = 0; i < headings.length; i++) {
-		const [headingLine, id, rest] = headings[i];
-		const start = headings[i].index + headingLine.length;
-		const end = i + 1 < headings.length ? headings[i + 1].index : source.length;
-		let block = source.slice(start, end);
-		const sectionBreak = block.search(/^##\s/m);
-		if (sectionBreak !== -1) block = block.slice(0, sectionBreak);
-
-		const title = rest.replace(/^[\s·—:|[\]-]+/, "").trim();
-		let action = "unknown";
-		let reason = "no Action line";
-		let applied = appliedIds.has(id);
-
-		const actionLine = block.match(/^[^\n]*\bAction:\s*([A-Za-z-]+)[^\n]*$/m);
-		if (actionLine) {
-			const token = actionLine[1];
-			if (token === "fix-eligible" || token === "record-only") {
-				action = token;
-				reason = null;
-				if (/\bapplied\b/i.test(actionLine[0])) applied = true;
-			} else if (/^TODO$/i.test(token)) {
-				reason = "Action is unfilled (TODO)";
-			} else {
-				reason = `unrecognized Action value "${token}"`;
-				anomalies.push(`${id}: unrecognized Action value "${token}"`);
-			}
-		}
-		if (/^\s*Applied:\s*(yes|true)\b/im.test(block)) applied = true;
-
-		findings.push({ id, title, action, applied, reason });
-	}
-
-	return { findings, scoutsMissing, anomalies };
+/** A yy-mm-dd slug round-trips through Date: "26-99-99" matches the shape but
+ * is not a calendar date, and must fail-closed rather than silently filter
+ * (or fail to filter) a day's evidence on a date that never happened. */
+function isValidDateSlug(value) {
+	if (!DATE_SLUG.test(String(value ?? ""))) return false;
+	const [yy, mm, dd] = String(value).split("-").map(Number);
+	const year = 2000 + yy;
+	const date = new Date(Date.UTC(year, mm - 1, dd));
+	return date.getUTCFullYear() === year && date.getUTCMonth() === mm - 1 && date.getUTCDate() === dd;
 }
 
 /**
@@ -124,8 +64,8 @@ export function parseReportFindings(text) {
  * literal "no" clears it.
  */
 export function parseNotebookRecords(text, dateSlug) {
-	if (!DATE_SLUG.test(String(dateSlug ?? ""))) {
-		fail("USAGE", "parseNotebookRecords requires a yy-mm-dd date");
+	if (!isValidDateSlug(dateSlug)) {
+		fail("USAGE", "parseNotebookRecords requires a valid yy-mm-dd date");
 	}
 	const source = String(text ?? "");
 	const fullDate = `20${dateSlug}`;
@@ -209,7 +149,7 @@ function collectGitLog(workspace, dateSlug) {
  * footer always survives the cap.
  */
 export function buildDigest({ date, reports, notebook, manifest, git }) {
-	if (!DATE_SLUG.test(String(date ?? ""))) fail("USAGE", "buildDigest requires a yy-mm-dd date");
+	if (!isValidDateSlug(date)) fail("USAGE", "buildDigest requires a valid yy-mm-dd date");
 	reports = reports ?? { status: "missing", reason: "not provided", files: [] };
 	notebook = notebook ?? { status: "missing", reason: "not provided", records: [] };
 	manifest = manifest ?? { status: "missing", reason: "not provided" };
@@ -245,6 +185,14 @@ export function buildDigest({ date, reports, notebook, manifest, git }) {
 	if (notebook.status === "malformed") anomalies.push(`[docs/supervisor-notebook.md] ${notebook.reason}`);
 	if (manifest.status === "malformed") anomalies.push(`[manifest.json] ${manifest.reason}`);
 	if (git.status === "failed") anomalies.push(`[git] ${git.reason}`);
+	// The footer must not just echo the recorded digest — a stale manifest
+	// claiming attribution for bytes it no longer matches is exactly the
+	// failure this check exists to surface.
+	if (manifest.status === "scanned" && manifest.computedPolicyDigest && manifest.computedPolicyDigest !== manifest.policyDigest) {
+		anomalies.push(
+			`[manifest.json] policyDigest ${manifest.policyDigest} does not match computed ${manifest.computedPolicyDigest} over current governed bytes`,
+		);
+	}
 
 	const appliedChanges = git.subjects.map((subject) => `- ${subject}`);
 	if (git.truncated) {
@@ -254,7 +202,9 @@ export function buildDigest({ date, reports, notebook, manifest, git }) {
 	}
 
 	const activity = [];
-	if (reports.status === "scanned" && reports.files.length > 0) {
+	// Gated on files present, not on reports.status === "scanned": one broken
+	// report must not hide genuine findings/decisions the other files carried.
+	if (reports.files.length > 0) {
 		activity.push(
 			`- Ultra-review reports dated ${date}: ${reports.files.length} · findings ${findingsTotal} (fix-eligible ${fixEligible} · record-only ${recordOnly} · unverifiable ${unverifiable})`,
 		);
@@ -272,14 +222,24 @@ export function buildDigest({ date, reports, notebook, manifest, git }) {
 	pushSection("Anomalies", anomalies.map((item) => `- ${item}`));
 	pushSection("Applied changes", appliedChanges);
 	pushSection("Review activity", activity);
-	const quietDay = body.length === 0;
-	if (quietDay) {
-		body.push(`Quiet day — no decisions needed, no anomalies, no commits, no review activity dated ${date}.`, "");
-	}
 
 	const headerLines = [`# EOD Digest — ${date}`, ""];
 	const statuses = [reports.status, notebook.status, manifest.status, git.status];
 	const scannedCount = statuses.filter((status) => status === "scanned").length;
+	// quiet_day is a claim that NOTHING happened, and that claim requires all
+	// four sources to have actually been scanned — a source that was merely
+	// missing (never checked) must not read as "checked, found nothing" (U8).
+	const allScanned = scannedCount === statuses.length;
+	const quietDay = allScanned && body.length === 0;
+	if (quietDay) {
+		body.push(`Quiet day — no decisions needed, no anomalies, no commits, no review activity dated ${date}.`, "");
+	} else if (body.length === 0) {
+		body.push(
+			`Cannot confirm a quiet day — ${statuses.length - scannedCount} of ${statuses.length} source(s) not scanned (see Accounting).`,
+			"",
+		);
+	}
+
 	const missingCount = statuses.filter((status) => status === "missing").length;
 	const brokenCount = statuses.length - scannedCount - missingCount;
 	const sourceLine = (name, info, detail) =>
@@ -291,15 +251,17 @@ export function buildDigest({ date, reports, notebook, manifest, git }) {
 		return [
 			"## Accounting",
 			"",
-			`- Date: ${date} · sources scanned ${scannedCount}/${statuses.length} · missing ${missingCount} · malformed/failed ${brokenCount}`,
+			`- Date: ${date} · sources scanned ${scannedCount}/${statuses.length} · missing ${missingCount} · malformed/failed/broken ${brokenCount}`,
 			sourceLine("docs/ultrareview/", reports, `${reports.files.length} report(s) dated ${date}`),
 			sourceLine("docs/supervisor-notebook.md", notebook, `${notebook.records.length} record(s) dated ${date}`),
 			sourceLine("manifest.json", manifest, ""),
 			sourceLine("git log", git, `${git.totalCommits} commit(s) dated ${date}`),
 			`- Counts: decisions ${decisions.length} · anomalies ${anomalies.length} · findings ${findingsTotal} · notebook records ${notebook.records.length} · commits ${git.totalCommits}`,
-			manifest.status === "scanned"
-				? `- Policy digest: ${manifest.policyDigest} (fileCount ${manifest.fileCount})`
-				: `- Policy digest: unavailable — manifest.json ${manifest.status}`,
+			manifest.status !== "scanned"
+				? `- Policy digest: unavailable — manifest.json ${manifest.status}`
+				: manifest.computedPolicyDigest && manifest.computedPolicyDigest !== manifest.policyDigest
+					? `- Policy digest: ${manifest.policyDigest} recorded vs ${manifest.computedPolicyDigest} computed — MISMATCH (fileCount ${manifest.fileCount})`
+					: `- Policy digest: ${manifest.policyDigest} (fileCount ${manifest.fileCount})`,
 			`- Truncation: ${flags.length ? flags.join("; ") : "none"}`,
 		];
 	};
@@ -369,7 +331,7 @@ export function parseArgs(argv) {
 	}
 	if (options.help) return options;
 	if (!options.workspace) fail("USAGE", "--workspace is required");
-	if (options.date !== null && !DATE_SLUG.test(options.date)) fail("USAGE", "--date must use yy-mm-dd format");
+	if (options.date !== null && !isValidDateSlug(options.date)) fail("USAGE", "--date must be a valid yy-mm-dd calendar date");
 	return options;
 }
 
@@ -390,17 +352,28 @@ export function main(options) {
 			.sort();
 		const files = names.map((name) => {
 			try {
-				return { name, ...parseReportFindings(readFileSync(join(reportDir, name), "utf8")) };
+				return { name, ...checkReportGate(readFileSync(join(reportDir, name), "utf8")) };
 			} catch (error) {
 				return {
 					name,
+					broken: true,
 					findings: [],
 					scoutsMissing: [],
 					anomalies: [`unreadable report: ${String(error?.message ?? error)}`],
 				};
 			}
 		});
-		reports = { status: "scanned", files };
+		const brokenFiles = files.filter((file) => file.broken);
+		// A broken file must not read as a clean scan in the accounting footer —
+		// the footer's job is to never lie about what was actually checked.
+		reports =
+			brokenFiles.length > 0
+				? {
+						status: "broken",
+						reason: `${brokenFiles.length} of ${files.length} report(s) unreadable: ${brokenFiles.map((file) => file.name).join(", ")}`,
+						files,
+					}
+				: { status: "scanned", files };
 	}
 
 	const notebookPath = join(workspace, "docs", "supervisor-notebook.md");
@@ -430,6 +403,13 @@ export function main(options) {
 		} catch (error) {
 			manifest = { status: "malformed", reason: `manifest.json is not valid JSON: ${String(error?.message ?? error)}` };
 		}
+	}
+	// Verify the recorded digest against the governed bytes actually on disk —
+	// echoing manifest.json's claim without checking it is how a stale digest
+	// keeps attributing today's artifacts to yesterday's policy.
+	if (manifest.status === "scanned") {
+		const computed = policyDigest(workspace);
+		manifest = { ...manifest, computedPolicyDigest: computed.policyDigest, computedFileCount: computed.fileCount };
 	}
 
 	const git = collectGitLog(workspace, date);
