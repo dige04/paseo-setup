@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { isEntrypoint, resolvePaseoExec } from "./lib-common.mjs";
+import { collectDailyReconciliation as collectDailyReconciliationObserver } from "./reconcile-observer.mjs";
 import { retryWithBackoff } from "./reliability.mjs";
 
 export const DEFAULT_STALE_AFTER_MS = 5 * 60_000;
@@ -156,11 +157,38 @@ export async function collectWatchdogSnapshot(options = {}) {
   };
 }
 
-async function main() {
-  let options = {};
-  try { options = process.argv[2] ? JSON.parse(process.argv[2]) : {}; }
+/**
+ * Daily lifecycle reconciliation is deliberately observation-only. Keeping it
+ * behind the already-sanctioned watchdog entrypoint lets a Supervisor inspect
+ * the queue without granting archive/delete authority.
+ */
+export async function collectDailyReconciliation(options = {}) {
+  return collectDailyReconciliationObserver({
+    ...options,
+    runPaseoJson: options.runPaseoJson ?? runPaseoJson,
+  });
+}
+
+export function parseWatchdogOptions(raw) {
+  if (raw === undefined || raw === "") return {};
+  let parsed;
+  try { parsed = JSON.parse(raw); }
   catch (error) { throw new Error(`invalid watchdog options JSON: ${String(error?.message ?? error)}`); }
-  console.log(JSON.stringify(await collectWatchdogSnapshot(options), null, 2));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("invalid watchdog options JSON: expected an object");
+  }
+  if (parsed.mode !== undefined && parsed.mode !== "daily-reconcile") {
+    throw new Error(`invalid watchdog mode: ${String(parsed.mode)}`);
+  }
+  return parsed;
+}
+
+async function main() {
+  const options = parseWatchdogOptions(process.argv[2]);
+  const snapshot = options.mode === "daily-reconcile"
+    ? await collectDailyReconciliation(options)
+    : await collectWatchdogSnapshot(options);
+  console.log(JSON.stringify(snapshot, null, 2));
 }
 
 export function isMainModule(entry = process.argv[1], moduleUrl = import.meta.url) {

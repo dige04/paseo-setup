@@ -29,6 +29,7 @@
 //   agents           --host-id <id> [--all]             paseo ls -g
 //   run              --host-id <id> --provider <role-provider>/<pi-provider>/<model-id>
 //                    --thinking <level> [--workspace <wks>] [--title <t>]
+//                    --labels <key=value,...>
 //                    [--prompt <text> | --brief <file>] [--wait-timeout <dur>]
 //   status           --agent-ref <host-id>/<agent-id>   paseo inspect
 //   cancel           --agent-ref <host-id>/<agent-id>   paseo stop
@@ -191,6 +192,7 @@ const COMMAND_FLAG_KEYS = {
 		"thinking",
 		"workspace",
 		"title",
+		"labels",
 		"prompt",
 		"brief",
 		"waitTimeout",
@@ -233,6 +235,51 @@ export function validateFlags(command, out) {
 			throw usageError(`flag "--${key}" requires a value`);
 		}
 	}
+}
+
+/**
+ * The wrapper accepts one comma-separated flag and emits repeated Paseo
+ * --label arguments. Repeated keys and paseo.* (Paseo-owned) keys fail closed.
+ */
+export function parseLabels(raw) {
+	if (raw === undefined) return [];
+	if (typeof raw !== "string" || raw.trim() === "") {
+		throw usageError("--labels requires comma-separated key=value labels");
+	}
+	const labels = raw.split(",").map((label) => label.trim());
+	if (labels.length > 16) throw usageError("--labels accepts at most 16 labels");
+	const keys = new Set();
+	for (const label of labels) {
+		const match = label.match(/^([A-Za-z0-9_.-]{1,64})=([^,\r\n=]{1,128})$/);
+		if (!match) throw usageError(`invalid label "${label}"; expected key=value`);
+		const key = match[1];
+		if (key.startsWith("paseo.")) throw usageError(`label key "${key}" is reserved by Paseo`);
+		if (keys.has(key)) throw usageError(`duplicate label key "${key}"`);
+		keys.add(key);
+	}
+	return labels;
+}
+
+const LIFECYCLE_ROLES = new Set(["observer", "writer", "reviewer", "lead", "supervisor"]);
+
+export function validateLifecycleLabels(labels) {
+	const map = new Map(labels.map((label) => {
+		const index = label.indexOf("=");
+		return [label.slice(0, index), label.slice(index + 1)];
+	}));
+	if (map.get("harness.owner") !== "paseo-claude-team") {
+		throw usageError('run requires --labels with harness.owner=paseo-claude-team');
+	}
+	for (const key of ["harness.run", "harness.project", "harness.task"]) {
+		if (!map.get(key)?.trim()) throw usageError(`run requires --labels with ${key}=<value>`);
+	}
+	if (!LIFECYCLE_ROLES.has(map.get("harness.role"))) {
+		throw usageError(`run requires harness.role=${[...LIFECYCLE_ROLES].join("|")}`);
+	}
+	if (!new Set(["ephemeral", "keep"]).has(map.get("harness.retention"))) {
+		throw usageError("run requires harness.retention=ephemeral|keep");
+	}
+	return labels;
 }
 
 // ---------------------------------------------------------------------------
@@ -611,6 +658,8 @@ export function buildArgv(command, opts, endpoint) {
 			if (typeof opts.title === "string" && opts.title.trim() !== "") {
 				argv.push("--title", opts.title.trim());
 			}
+			const labels = validateLifecycleLabels(parseLabels(opts.labels));
+			for (const label of labels) argv.push("--label", label);
 			const waitTimeout =
 				typeof opts.waitTimeout === "string" && opts.waitTimeout.trim() !== "";
 			if (opts.background && waitTimeout) {
@@ -779,6 +828,7 @@ Commands:
   agents           --host-id <id> [--all]
   run              --host-id <id> --provider <role-provider>/<pi-provider>/<model-id>
                    --thinking <level> --workspace <wks-id> [--title <t>]
+                   --labels <key=value,...>
                    [--prompt <text> | --brief <file>] [--wait-timeout <dur>]
                    [--startup-timeout <dur>]
   status           --agent-ref <host-id>/<agent-id>

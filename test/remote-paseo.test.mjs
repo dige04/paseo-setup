@@ -12,6 +12,7 @@ import {
 	buildArgv,
 	parseAgentRef,
 	parseArgs,
+	parseLabels,
 	parseDurationMs,
 	readPrompt,
 	resolveCmdEntry,
@@ -260,6 +261,16 @@ function withEndpoint(value) {
 	validateFlags("run", out);
 }
 
+{
+	assert.deepEqual(
+		parseLabels("harness.owner=paseo-claude-team,harness.role=reviewer"),
+		["harness.owner=paseo-claude-team", "harness.role=reviewer"],
+	);
+	expectRemoteError("USAGE", () => parseLabels("bare-label"));
+	expectRemoteError("USAGE", () => parseLabels("harness.role=writer,harness.role=reviewer"));
+	expectRemoteError("USAGE", () => parseLabels("paseo.parent-agent-id=x"));
+}
+
 // ---------------------------------------------------------------------------
 // resolveHost
 // ---------------------------------------------------------------------------
@@ -413,6 +424,8 @@ function loadClusterConfigFromFixture() {
 // ---------------------------------------------------------------------------
 
 const EP = "https://app.paseo.sh/#offer=tok";
+const LIFECYCLE_LABELS = "harness.owner=paseo-claude-team,harness.run=run-1,harness.project=demo,harness.role=writer,harness.task=T-1,harness.retention=ephemeral";
+const LIFECYCLE_LABEL_ARGV = LIFECYCLE_LABELS.split(",").flatMap((label) => ["--label", label]);
 
 {
 	const t = "buildArgv: health";
@@ -581,6 +594,7 @@ const EP = "https://app.paseo.sh/#offer=tok";
 			thinking: "medium",
 			workspace: "wks-1",
 			title: "t",
+			labels: LIFECYCLE_LABELS,
 			prompt: "fix it now",
 		},
 		EP,
@@ -599,6 +613,7 @@ const EP = "https://app.paseo.sh/#offer=tok";
 			"wks-1",
 			"--title",
 			"t",
+			...LIFECYCLE_LABEL_ARGV,
 			"-d",
 			"--json",
 			"fix it now",
@@ -615,6 +630,7 @@ const EP = "https://app.paseo.sh/#offer=tok";
 			provider: "claude-peer/testprov/model-b",
 			thinking: "medium",
 			workspace: "wks-1",
+			labels: LIFECYCLE_LABELS,
 			prompt: "x",
 			waitTimeout: "2m",
 		},
@@ -622,6 +638,26 @@ const EP = "https://app.paseo.sh/#offer=tok";
 	);
 	assert.ok(argv.includes("--wait-timeout") && argv.includes("2m"), t);
 	assert.ok(!argv.includes("-d"), t);
+}
+
+{
+	expectRemoteError("USAGE", () =>
+		buildArgv("run", {
+			provider: "claude-peer/testprov/model-b",
+			thinking: "medium",
+			workspace: "wks-1",
+			prompt: "x",
+		}, EP),
+	);
+	expectRemoteError("USAGE", () =>
+		buildArgv("run", {
+			provider: "claude-peer/testprov/model-b",
+			thinking: "medium",
+			workspace: "wks-1",
+			labels: "harness.owner=paseo-claude-team,harness.role=writer",
+			prompt: "x",
+		}, EP),
+	);
 }
 
 {
@@ -648,6 +684,7 @@ const EP = "https://app.paseo.sh/#offer=tok";
 				provider: "claude-peer/testprov/model-b",
 				thinking: "medium",
 				workspace: "wks-1",
+				labels: LIFECYCLE_LABELS,
 				prompt: "x",
 				waitTimeout: "2m",
 				background: true,
@@ -860,6 +897,8 @@ assert.deepEqual(
 		"wks-1",
 		"--title",
 		"remote-job",
+		"--labels",
+		LIFECYCLE_LABELS,
 		"--prompt",
 		"implement the feature",
 	], {
@@ -886,7 +925,7 @@ assert.deepEqual(
 	const t = "e2e: missing agent id is explicit and does not archive";
 	const r = runWrapper([
 		"run", "--host-id", "mac-review", "--provider", "claude-peer/testprov/model-b",
-		"--thinking", "medium", "--workspace", "wks-1", "--prompt", "missing-id",
+		"--thinking", "medium", "--workspace", "wks-1", "--labels", LIFECYCLE_LABELS, "--prompt", "missing-id",
 	], { extraEnv: { FAKE_PASEO_NO_AGENT_ID: "1" } });
 	assert.equal(r.code, 2, `${t} (stderr: ${r.stderr})`);
 	assert.equal(r.json.code, "AGENT_REF_UNAVAILABLE", t);
@@ -899,7 +938,7 @@ assert.deepEqual(
 	const archiveMarker = join(home, "archive-called");
 	const r = runWrapper([
 		"run", "--host-id", "mac-review", "--provider", "claude-peer/testprov/model-b",
-		"--thinking", "medium", "--workspace", "wks-1", "--prompt", "wait",
+		"--thinking", "medium", "--workspace", "wks-1", "--labels", LIFECYCLE_LABELS, "--prompt", "wait",
 		"--startup-timeout", "1ms",
 	], {
 		home,
@@ -918,7 +957,7 @@ assert.deepEqual(
 	const archiveMarker = join(home, "archive-called");
 	const r = runWrapper([
 		"run", "--host-id", "mac-review", "--provider", "claude-peer/testprov/model-b",
-		"--thinking", "medium", "--workspace", "wks-1", "--prompt", "mismatch",
+		"--thinking", "medium", "--workspace", "wks-1", "--labels", LIFECYCLE_LABELS, "--prompt", "mismatch",
 	], {
 		home,
 		extraEnv: {
@@ -937,7 +976,7 @@ assert.deepEqual(
 	const t = "e2e: mismatch archive failure remains explicit";
 	const r = runWrapper([
 		"run", "--host-id", "mac-review", "--provider", "claude-peer/testprov/model-b",
-		"--thinking", "medium", "--workspace", "wks-1", "--prompt", "mismatch",
+		"--thinking", "medium", "--workspace", "wks-1", "--labels", LIFECYCLE_LABELS, "--prompt", "mismatch",
 	], {
 		extraEnv: {
 			FAKE_PASEO_RUNTIME_MODEL: "testprov/model-a",
@@ -1024,6 +1063,8 @@ assert.deepEqual(
 			"medium",
 			"--workspace",
 			"wks-1",
+			"--labels",
+			LIFECYCLE_LABELS,
 			"--brief",
 			brief,
 		],
@@ -1127,7 +1168,7 @@ assert.deepEqual(
 	const home = makeHome();
 	const r = runWrapper([
 		"run", "--host-id", "mac-review", "--provider", "claude-peer/testprov/model-b",
-		"--thinking", "medium", "--workspace", "wks-1", "--prompt", "x",
+		"--thinking", "medium", "--workspace", "wks-1", "--labels", LIFECYCLE_LABELS, "--prompt", "x",
 		"--wait-timeout", "not-a-duration",
 	], { home });
 	assert.equal(r.code, 1, t);

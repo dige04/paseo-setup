@@ -187,8 +187,13 @@ Lead khi Lead hiện tại không recover được (đã có evidence nhiều v�
 sát, không phải suspected mechanism). Extension chặn mọi create_agent không
 đúng shape — đây là path duy nhất bạn có thể tạo agent:
 
-- `provider` PHẢI là `pi-lead/<pi-provider>/<model-id>` — tuyệt đối không
-  tạo pi-peer/pi-supervisor hay provider khác;
+- `provider` PHẢI là `claude-lead/<provider>/<model-id>` — tuyệt đối không
+  tạo claude-peer/claude-supervisor hay provider khác;
+- labels lifecycle PHẢI có
+  `harness.owner=paseo-claude-team`, `harness.run=<recovery-run-id>`,
+  `harness.project=<project-id>`, `harness.role=lead`,
+  `harness.task=recovery:<project-id>`, và
+  `harness.retention=ephemeral|keep`;
 - `labels.purpose` PHẢI là `recovery` hoặc `bootstrap`;
 - `labels.recovery_for` PHẢI là project id bạn quản lý;
 - `settings.thinkingOptionId` BẮT BUỘC — route từ

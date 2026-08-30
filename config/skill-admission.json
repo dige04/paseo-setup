@@ -1,0 +1,22 @@
+{
+  "$comment": "Human-readable mirror of SKILL_ADMISSION in extensions/policy-core.mts \u2014 the hook enforces the .mts table (dependency-free at runtime); a test asserts the two never drift. value null = active for the role; a string = required V3 DISPOSITION; a skill absent from a role's map = disabled for that role. Non-pack skills are out of scope. Projects may further restrict via WORKSPACE_PROTOCOL.md; they may not widen this here. repo-refresh is admitted to NO role: it is Human-explicit-only (the hook does not run outside role-bound sessions).",
+  "schemaVersion": 1,
+  "packSkills": [
+    "paseo-team-lead",
+    "paseo-ultra-review",
+    "paseo-ocr-reviewer",
+    "paseo-premise-audit",
+    "repo-refresh"
+  ],
+  "roles": {
+    "lead": {
+      "paseo-team-lead": null,
+      "paseo-ultra-review": null
+    },
+    "peer": {
+      "paseo-ocr-reviewer": "independent-reviewer",
+      "paseo-premise-audit": "solution-architect"
+    },
+    "supervisor": {}
+  }
+}

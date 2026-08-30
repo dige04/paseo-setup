@@ -24,6 +24,7 @@
  *   node scripts/governance-graph.mjs                 # scope: cwd, to stdout
  *   node scripts/governance-graph.mjs --all --out g.json
  *   node scripts/governance-graph.mjs --serve 7788    # viewer + live JSON
+ *   node scripts/governance-graph.mjs --assert        # invariants A1–A6, exit 3 on violation
  */
 
 import { execFile } from "node:child_process";
@@ -36,6 +37,20 @@ import { retryWithBackoff } from "./reliability.mjs";
 import { runPaseoJson } from "./watchdog.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+
+export const GOVERNANCE_GRAPH_ERROR_CODES = Object.freeze(["USAGE", "COLLECTION_FAILED", "GRAPH_FAILED"]);
+
+export class GovernanceGraphError extends Error {
+  constructor(code, message) {
+    super(`${code}: ${message}`);
+    this.name = "GovernanceGraphError";
+    this.code = code;
+  }
+}
+
+function fail(code, message) {
+  throw new GovernanceGraphError(code, message);
+}
 
 let cachedExec = null;
 /** [command, ...leadingArgs] — the same contract watchdog.mjs relies on. */
@@ -278,6 +293,190 @@ export function buildGraph(agents, { daemon = {}, generatedAt, scope } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Topology invariants (--assert)
+// ---------------------------------------------------------------------------
+
+export const ASSERT_RULES = Object.freeze({
+  A1: "one-writer-per-scope",
+  A2: "writer-is-acceptor",
+  A3: "unknown-role-in-governed-scope",
+  A4: "peer-orchestrates",
+  A5: "supervisor-not-observe-only",
+  A6: "count-integrity",
+});
+
+/**
+ * Classify write posture from the Mode `inspect` reports. Only unambiguous
+ * modes are classified; everything else — a missing mode (inspect failed or
+ * withheld the field) and approval-gated modes like "default" — is "unknown",
+ * because an approval-gated agent may or may not be writing and guessing in
+ * either direction would invent a signal the graph does not carry.
+ */
+export function writePosture(mode) {
+  if (mode === null || mode === undefined || mode === "") return "unknown";
+  const normalized = String(mode).toLowerCase().replace(/[\s_-]/g, "");
+  if (["plan", "readonly", "observe"].includes(normalized)) return "read-only";
+  if (["acceptedits", "bypasspermissions", "yolo", "write", "edit"].includes(normalized)) return "write";
+  return "unknown";
+}
+
+/**
+ * Evaluate topology invariants A1–A6 over an already-built graph. Pure: no
+ * daemon, no I/O, deterministic output for a given graph.
+ *
+ * Returns { violations, cannotVerify }, each entry { id, rule, agents,
+ * evidence }. Fail-closed honesty: an invariant whose signal is not derivable
+ * from the graph lands in cannotVerify with a concrete reason — unknown is
+ * never pass, and inventing a signal is worse than admitting blindness.
+ */
+export function assertTopology(graph) {
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+  const meta = graph?.meta ?? {};
+  const violations = [];
+  const cannotVerify = [];
+  const entry = (rule, key, agentIds, evidence) => ({
+    id: `${rule}:${key}`,
+    rule: `${rule}-${ASSERT_RULES[rule]}`,
+    agents: [...agentIds].sort(),
+    evidence,
+  });
+
+  const agents = nodes
+    .filter((n) => n?.type === "agent")
+    .map((n) => ({
+      id: n.id,
+      role: n.data?.role ?? "unknown",
+      status: n.data?.status ?? "unknown",
+      mode: n.data?.mode ?? null,
+      cwd: n.data?.cwd ?? "",
+      posture: writePosture(n.data?.mode),
+    }));
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  const modeLabel = (a) => (a.mode === null ? "mode absent (no inspect data)" : `unrecognized mode "${a.mode}"`);
+
+  // A1 — more than one write-capable peer sharing one scope.
+  const peers = agents.filter((a) => a.role === "peer");
+  const noScope = peers.filter((a) => !a.cwd);
+  if (noScope.length > 0) {
+    cannotVerify.push(entry("A1", "(no-scope)", noScope.map((a) => a.id),
+      `${noScope.length} peer agent(s) carry no cwd signal; scope sharing cannot be evaluated for them`));
+  }
+  const peersByCwd = new Map();
+  for (const p of peers.filter((a) => a.cwd)) {
+    if (!peersByCwd.has(p.cwd)) peersByCwd.set(p.cwd, []);
+    peersByCwd.get(p.cwd).push(p);
+  }
+  for (const cwd of [...peersByCwd.keys()].sort()) {
+    const group = peersByCwd.get(cwd);
+    const writers = group.filter((a) => a.posture === "write");
+    const unknowns = group.filter((a) => a.posture === "unknown");
+    if (writers.length > 1) {
+      violations.push(entry("A1", cwd, writers.map((a) => a.id),
+        `${writers.length} write-capable peers share scope ${cwd}: ${writers.map((a) => `${a.id}(${a.mode})`).sort().join(", ")}`));
+    } else if (unknowns.length > 0 && writers.length + unknowns.length > 1) {
+      cannotVerify.push(entry("A1", cwd, unknowns.map((a) => a.id),
+        `scope ${cwd} has ${writers.length} confirmed writer(s) plus ${unknowns.length} peer(s) whose posture is not derivable (${unknowns.map(modeLabel).sort().join("; ")}); a second writer cannot be ruled out`));
+    }
+  }
+
+  // A2 — a lead in a write-capable posture; the pack's lead default is read-only.
+  const leadWrite = nodes.find((n) => n?.id === "run-policy")?.data?.policy?.leadWrite ?? "undeclared";
+  for (const lead of agents.filter((a) => a.role === "lead")) {
+    if (lead.posture === "write") {
+      violations.push(entry("A2", lead.id, [lead.id],
+        `lead ${lead.id} holds write-capable mode "${lead.mode}"; the lead seat accepts, it does not write (leadWrite policy: ${leadWrite})`));
+    } else if (lead.posture === "unknown") {
+      cannotVerify.push(entry("A2", lead.id, [lead.id],
+        `lead ${lead.id} posture is not derivable: ${modeLabel(lead)}; read-only cannot be confirmed`));
+    }
+  }
+
+  // A3 — an agent with no role suffix inside a scope where role-providers run.
+  const governedCwds = new Map();
+  for (const a of agents) {
+    if (a.role === "unknown" || !a.cwd) continue;
+    if (!governedCwds.has(a.cwd)) governedCwds.set(a.cwd, []);
+    governedCwds.get(a.cwd).push(a.id);
+  }
+  for (const u of agents.filter((a) => a.role === "unknown")) {
+    if (!u.cwd) {
+      cannotVerify.push(entry("A3", u.id, [u.id],
+        `agent ${u.id} declares no role and carries no cwd signal; whether it sits inside a governed scope cannot be determined`));
+    } else if (governedCwds.has(u.cwd)) {
+      violations.push(entry("A3", u.id, [u.id],
+        `agent ${u.id} has no role suffix on its provider but is active in governed scope ${u.cwd} alongside role-declared agents [${governedCwds.get(u.cwd).sort().join(", ")}]`));
+    }
+  }
+
+  // A4 — a peer that parents delegation edges. Edges come only from a real
+  // ParentAgentId, so a hit here is a fact, not an inference.
+  const delegateTargets = new Map();
+  for (const e of edges.filter((x) => x?.data?.kind === "delegates")) {
+    if (!delegateTargets.has(e.source)) delegateTargets.set(e.source, []);
+    delegateTargets.get(e.source).push(e.target);
+  }
+  for (const source of [...delegateTargets.keys()].sort()) {
+    if (byId.get(source)?.role !== "peer") continue;
+    const targets = delegateTargets.get(source).sort();
+    violations.push(entry("A4", source, [source, ...targets],
+      `peer ${source} parents delegation edge(s) to [${targets.join(", ")}]; a peer holds one bounded scope and never orchestrates`));
+  }
+  if (meta.partial === true) {
+    cannotVerify.push(entry("A4", "(partial)", [],
+      "snapshot is partial (capped scan or failed inspects); ParentAgentId is only visible via inspect, so the absence of further delegation edges is not proof that no peer orchestrates"));
+  }
+
+  // A5 — a supervisor that orchestrates, or writes where posture is visible.
+  for (const sup of agents.filter((a) => a.role === "supervisor")) {
+    const targets = (delegateTargets.get(sup.id) ?? []).sort();
+    if (targets.length > 0) {
+      violations.push(entry("A5", sup.id, [sup.id, ...targets],
+        `supervisor ${sup.id} parents delegation edge(s) to [${targets.join(", ")}]; the supervisor seat is observe-only and never orchestrates`));
+    }
+    if (sup.posture === "write") {
+      violations.push(entry("A5", `${sup.id}:posture`, [sup.id],
+        `supervisor ${sup.id} holds write-capable mode "${sup.mode}"; the supervisor seat is observe-only`));
+    } else if (sup.posture === "unknown") {
+      cannotVerify.push(entry("A5", `${sup.id}:posture`, [sup.id],
+        `supervisor ${sup.id} posture is not derivable: ${modeLabel(sup)}; observe-only cannot be confirmed`));
+    }
+  }
+
+  // A6 — counts must never present a capped or partial scan as a total.
+  const scan = meta.scan;
+  const scanShapeOk =
+    scan !== null &&
+    typeof scan === "object" &&
+    Number.isFinite(scan?.scopedTotal) &&
+    Number.isFinite(scan?.rendered) &&
+    Number.isFinite(scan?.uninspected) &&
+    typeof scan?.truncated === "boolean";
+  if (!scanShapeOk) {
+    cannotVerify.push(entry("A6", "(no-scan-metadata)", [],
+      "meta.scan is absent or malformed, so meta.counts cannot be checked against the pre-cap population; counts must not be read as totals"));
+  } else {
+    if (scan.rendered < scan.scopedTotal && scan.truncated !== true) {
+      violations.push(entry("A6", "truncation-unsignaled", [],
+        `scan rendered ${scan.rendered} of ${scan.scopedTotal} in-scope agents but meta.scan.truncated is not true; a capped scan must never read as a total`));
+    }
+    if ((scan.truncated === true || scan.uninspected > 0) && meta.partial !== true) {
+      violations.push(entry("A6", "partial-unsignaled", [],
+        `scan reports truncated=${scan.truncated} and uninspected=${scan.uninspected} but meta.partial is not true; incompleteness must be surfaced at the top level`));
+    }
+    if (Number.isFinite(meta.counts?.tasks) && meta.counts.tasks !== scan.rendered) {
+      violations.push(entry("A6", "counts-mismatch", [],
+        `meta.counts.tasks=${meta.counts.tasks} does not match meta.scan.rendered=${scan.rendered}; counts must describe exactly the rendered set`));
+    }
+  }
+
+  const byIdOrder = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  violations.sort(byIdOrder);
+  cannotVerify.sort(byIdOrder);
+  return { violations, cannotVerify };
+}
+
+// ---------------------------------------------------------------------------
 // Collection
 // ---------------------------------------------------------------------------
 
@@ -344,8 +543,18 @@ export async function collectGraph(options = {}) {
     daemon,
     scope: options.all ? "all" : (options.cwd ?? process.cwd()),
   });
-  graph.meta.partial =
-    scoped.length > capped.length || agents.some((a) => !a.inspectOk);
+  // A capped scan must never read as a total: meta.counts describes the
+  // RENDERED set, so the pre-cap population and the inspect shortfall are
+  // published alongside it instead of collapsing into one boolean.
+  const uninspected = agents.filter((a) => !a.inspectOk).length;
+  graph.meta.scan = {
+    listedTotal: Array.isArray(listed) ? listed.length : 0,
+    scopedTotal: scoped.length,
+    rendered: capped.length,
+    truncated: scoped.length > capped.length,
+    uninspected,
+  };
+  graph.meta.partial = graph.meta.scan.truncated || uninspected > 0;
   return graph;
 }
 
@@ -354,17 +563,33 @@ export async function collectGraph(options = {}) {
 // ---------------------------------------------------------------------------
 
 export function parseArgs(argv) {
-  const options = { all: false, cwd: process.cwd(), out: null, serve: null };
+  const options = { all: false, cwd: process.cwd(), out: null, serve: null, assert: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--all" || arg === "-g") options.all = true;
-    else if (arg === "--cwd") options.cwd = argv[++i];
-    else if (arg === "--out") options.out = argv[++i];
-    else if (arg === "--serve") {
+    if (arg === "--help" || arg === "-h") options.help = true;
+    else if (arg === "--all" || arg === "-g") options.all = true;
+    else if (arg === "--assert") options.assert = true;
+    else if (arg === "--cwd" || arg === "--out") {
+      const value = argv[++i];
+      if (value === undefined || value.startsWith("--")) fail("USAGE", `${arg} requires a value`);
+      options[arg.slice(2)] = value;
+    } else if (arg === "--serve") {
       const next = argv[i + 1];
-      options.serve = next && !next.startsWith("-") ? Number(argv[++i]) : 7788;
+      if (next && !next.startsWith("-")) {
+        const port = Number(argv[++i]);
+        if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+          fail("USAGE", "--serve port must be an integer between 1 and 65535");
+        }
+        options.serve = port;
+      } else {
+        options.serve = 7788;
+      }
+    } else {
+      fail("USAGE", `unknown argument "${arg}"`);
     }
   }
+  // --serve is a long-lived viewer; --assert is a one-shot exit-code contract.
+  if (options.assert && options.serve) fail("USAGE", "--assert and --serve cannot be combined");
   return options;
 }
 
@@ -444,10 +669,53 @@ async function serve(port, options) {
   });
 }
 
+function help() {
+  return `governance-graph.mjs — render the live Paseo team topology as a graph
+
+Usage:
+  node scripts/governance-graph.mjs [--all | --cwd <path>] [--out <file>]
+  node scripts/governance-graph.mjs --serve [port]
+  node scripts/governance-graph.mjs --assert [--all | --cwd <path>] [--out <file>]
+
+Options:
+  --all, -g        every workspace (default: scope to the invoking directory)
+  --cwd <path>     scope to one workspace
+  --out <file>     write the JSON to a file
+  --serve [port]   loopback viewer + live JSON (default port 7788)
+  --assert         evaluate topology invariants A1–A6 over the collected graph
+                   and print { ok, violations, cannotVerify, meta }
+  --help, -h       this text
+
+Assert exit codes:
+  0  no violations (cannotVerify may be non-empty — reported, not a failure)
+  3  violations found
+  2  usage or collection error ({ ok:false, code, message } on stdout)
+
+Invariants: A1 one-writer-per-scope, A2 writer-is-acceptor, A3 unknown-role in
+governed scope, A4 peer-orchestrates, A5 supervisor-not-observe-only, A6
+count-integrity. Unknown is never pass: a signal the graph does not carry is
+reported under cannotVerify with the concrete reason.`;
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    console.log(help());
+    return;
+  }
   if (options.serve) return serve(options.serve, options);
   const graph = await collectGraph(options);
+  if (options.assert) {
+    // Asserting over an unreachable daemon would pass vacuously on an empty
+    // graph. Fail-closed: a collection error is an error, never a green exit.
+    if (graph.error) fail("COLLECTION_FAILED", `collection failed: ${graph.error}`);
+    const { violations, cannotVerify } = assertTopology(graph);
+    const json = JSON.stringify({ ok: violations.length === 0, violations, cannotVerify, meta: graph.meta }, null, 2);
+    if (options.out) writeFileSync(options.out, `${json}\n`);
+    console.log(json);
+    if (violations.length > 0) process.exitCode = 3;
+    return;
+  }
   const json = JSON.stringify(graph, null, 2);
   if (options.out) {
     writeFileSync(options.out, `${json}\n`);
@@ -463,7 +731,8 @@ export function isMainModule(entry = process.argv[1], moduleUrl = import.meta.ur
 
 if (isMainModule()) {
   main().catch((error) => {
-    console.error(JSON.stringify({ ok: false, code: "GRAPH_FAILED", message: String(error?.message ?? error) }));
-    process.exit(2);
+    const code = error instanceof GovernanceGraphError ? error.code : "GRAPH_FAILED";
+    console.log(JSON.stringify({ ok: false, code, message: String(error?.message ?? error) }));
+    process.exitCode = 2;
   });
 }

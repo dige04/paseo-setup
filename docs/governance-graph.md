@@ -71,3 +71,41 @@ the JSON.
 
 `--serve` binds to `127.0.0.1` only — the graph exposes agent ids and workspace
 paths.
+
+## Assert mode
+
+`--assert` runs the normal collection, evaluates six topology invariants over
+the built graph with the pure `assertTopology(graph)`, and prints
+`{ ok, violations, cannotVerify, meta }`. It composes with `--all` / `--cwd`
+(and `--out`, which receives the same JSON); it refuses `--serve`.
+
+| Rule | One line |
+|---|---|
+| `A1-one-writer-per-scope` | more than one peer in a write-capable mode sharing one cwd |
+| `A2-writer-is-acceptor` | a lead in a write-capable mode — the lead seat accepts, it does not write |
+| `A3-unknown-role-in-governed-scope` | an agent with no role suffix active in a cwd where role-providers run |
+| `A4-peer-orchestrates` | a peer that parents any `delegates` edge |
+| `A5-supervisor-not-observe-only` | a supervisor that parents `delegates` edges, or holds a write-capable mode |
+| `A6-count-integrity` | `meta` presenting a capped or partial scan as a total |
+
+Exit codes: `0` — no violations (`cannotVerify` may be non-empty; it is
+reported, not a failure), `3` — violations found, `2` — usage or collection
+error, as a `{ ok:false, code, message }` envelope on stdout. An unreachable
+daemon is a `COLLECTION_FAILED` exit 2, never a green pass over an empty graph.
+
+**Unknown ≠ pass.** Every check runs on signals the graph actually carries:
+role and cwd from the node data, posture from the `Mode` that `inspect`
+reported, parentage from `delegates` edges, totals from `meta.scan`. Only
+unambiguous modes classify (`plan`/`readOnly`/`observe` → read-only;
+`acceptEdits`/`bypassPermissions`/`yolo`/`write`/`edit` → write); a missing or
+approval-gated mode (`default`), a missing cwd, or a missing `meta.scan` lands
+the affected check in `cannotVerify` with the concrete reason — never silently
+in the pass column, and never guessed into a violation. A partial snapshot also
+adds an A4 `cannotVerify` note, because `ParentAgentId` is only visible via
+`inspect` and absent edges are not proof.
+
+A6 is also why `collectGraph` now emits `meta.scan`
+(`{ listedTotal, scopedTotal, rendered, truncated, uninspected }`): previously
+the `maxAgents` cap (default 100) surfaced only as the lone boolean
+`meta.partial` while `meta.counts` silently described the capped list — a
+capped scan reading as a total, which is itself the A6 violation.

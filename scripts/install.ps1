@@ -24,6 +24,9 @@ $teamSupportFiles = @(
   # lib-common.mjs must ship: every other support script imports it.
   "lib-common.mjs",
   "reliability.mjs",
+  "reconcile-core.mjs",
+  "reconcile-observer.mjs",
+  "policy-digest.mjs",
   "watchdog.mjs",
   "team-communication.mjs",
   "ocr-review.mjs",
@@ -47,7 +50,7 @@ foreach ($supportFile in $teamSupportFiles) {
 }
 
 # The policy says what an agent MAY do; the skills say HOW the work is run.
-foreach ($skill in @("paseo-team-lead", "paseo-ocr-reviewer", "paseo-ultra-review", "paseo-premise-audit")) {
+foreach ($skill in @("paseo-team-lead", "paseo-ocr-reviewer", "paseo-ultra-review", "paseo-premise-audit", "repo-refresh")) {
   $dest = Join-Path $claudeSkillsDir $skill
   if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
   Copy-Item -Recurse -Force (Join-Path $RolePackRoot "skills\$skill") $dest
@@ -62,6 +65,41 @@ $hookEntry = @{ matcher = "*"; hooks = @(@{ type = "command"; command = $hookPat
     PreToolUse       = @($hookEntry)
     SessionEnd       = @($hookEntry)
 } } | ConvertTo-Json -Depth 8 | Set-Content -Path $claudeSettings -Encoding utf8
+
+# Install provenance: the deployed manifest.json carries the pack version and
+# policy digest; the git commit message below is derived from the DEPLOYED copy.
+Copy-Item (Join-Path $RolePackRoot "manifest.json") $claudeTeamDir -Force
+
+# Deployed-config git versioning (P0). Mirrors install.sh: every install or
+# refresh of the deploy dir lands as a revertable commit. Without git, degrade
+# LOUDLY - a WARNING and exit 0, never a silent unversioned deploy. The repo is
+# created in the deploy dir and nowhere else.
+if (Get-Command git -ErrorAction SilentlyContinue) {
+  $manifestPath = Join-Path $claudeTeamDir "manifest.json"
+  $readManifest = "JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8'))"
+  $packVersion = (& node -p "$readManifest.version" $manifestPath).Trim()
+  $packDigest = (& node -p "$readManifest.policyDigest" $manifestPath).Trim()
+  # state/ is runtime-mutable; it must never enter config history.
+  Set-Content -Path (Join-Path $claudeTeamDir ".gitignore") -Value "state/" -Encoding utf8
+  if (Test-Path (Join-Path $claudeTeamDir ".git")) {
+    $commitMessage = "refresh $packVersion $packDigest"
+  } else {
+    # Exact-directory test on purpose: a deploy dir nested inside some parent
+    # repo must still get its OWN repo, not commits into the parent.
+    & git -C $claudeTeamDir init --quiet
+    if ($LASTEXITCODE -ne 0) { Write-Error "[paseo-claude-team] git init failed in $claudeTeamDir"; exit 1 }
+    $commitMessage = "install $packVersion $packDigest"
+  }
+  & git -C $claudeTeamDir add -A
+  # Pinned identity + signing off so the commit succeeds deterministically on
+  # hosts with no global git config; --allow-empty keeps a no-change refresh
+  # auditable instead of failing the install.
+  & git -C $claudeTeamDir -c user.name="paseo-claude-team installer" -c user.email="installer@paseo-claude-team.invalid" -c commit.gpgsign=false commit --quiet --allow-empty -m $commitMessage
+  if ($LASTEXITCODE -ne 0) { Write-Error "[paseo-claude-team] deployed-config git commit failed"; exit 1 }
+  Write-Host "[paseo-claude-team] deployed-config commit: $commitMessage"
+} else {
+  Write-Host "[paseo-claude-team] WARNING: git not found - deployed config at $claudeTeamDir is unversioned; routing changes are not revertable"
+}
 
 # OpenCodeReview is a global npm package, needed only by the OCR reviewer flow.
 if (-not $SkipOcr) {
@@ -85,6 +123,12 @@ Write-Host ""
 Write-Host "Next steps:"
 Write-Host "  1. Merge config/paseo.providers.claude.example.json into ~/.paseo/config.json,"
 Write-Host "     replacing <HOME> with $env:USERPROFILE. Keep daemon.mcp.injectIntoAgents: true."
+Write-Host "     JSON has no comments, so note here: the per-role 'models' arrays are an"
+Write-Host "     owner-approved allowlist that intentionally REPLACES the runtime catalog -"
+Write-Host "     after any provider update, inspect the catalog and smoke-test before"
+Write-Host "     widening; never use additionalModels. The built-in 'claude' provider is"
+Write-Host "     disabled so a role-less session cannot start by accident; the three role"
+Write-Host "     providers extend it and keep working."
 Write-Host "  2. Restart the Paseo daemon when NO agent is running: paseo daemon restart"
 Write-Host "  3. Confirm the providers: paseo provider ls"
 Write-Host ""

@@ -181,6 +181,26 @@ a checklist for those files only. They are not a bound on what scouts may report
 `;
 }
 
+/**
+ * Convergence gate — the reason a review runs TEN overlapping scouts is not
+ * recall alone: convergence is the noise filter. A finding is eligible for an
+ * immediate fix only when enough independent traces reached the same root AND
+ * the Lead reproduced the failure on current bytes. Everything else is
+ * RECORDED, not fixed: an applied fix is committed and hard to walk back; a
+ * recorded finding can be fixed any time. (Round-1 lesson: 3 of 12 fixes
+ * landed below this bar, one of them for an exploit that does not reproduce.)
+ *
+ * Fail-closed: malformed inputs are record-only.
+ */
+export function findingAction({ convergence, reproduced, contractBreaker = false, k = 3 } = {}) {
+	const paths = Number.isFinite(convergence) ? convergence : 0;
+	const threshold = Number.isFinite(k) && k >= 1 ? k : 3;
+	if (reproduced !== true) return "record-only";
+	if (paths >= threshold) return "fix-eligible";
+	if (contractBreaker === true) return "fix-eligible";
+	return "record-only";
+}
+
 export function markdownTemplate({
 	dateSlug,
 	reviewName,
@@ -236,10 +256,30 @@ rejection belongs to the later verification pass, not to consolidation.
 If there are no candidates, write: No candidates reported.
 -->
 
+<!--
+CONVERGENCE GATE (mandatory on every finding):
+  Convergence: <n>/<scouts planned>   — independent scouts reaching this ROOT CAUSE
+  Reproduced:  yes | no               — Lead reproduced the failure on current bytes
+  Action:      fix-eligible | record-only   — computed, never hand-picked:
+               fix-eligible ⇔ Reproduced=yes AND (Convergence ≥ 3 OR contract-breaker)
+A record-only finding is NOT rejected — it waits for verification or round 2.
+Fixing below the gate is the "fix vô tội vạ" failure: one scout's plausible
+story plus an eager Lead. If ≥2 findings share one owning mechanism, STOP:
+dispatch an architect-Peer on the root question before fixing any of them.
+
+TRADE-OFF (second half of the gate): a fix-eligible finding is still not
+APPLIED until its "Trade-off of fixing now" line states what the fix costs or
+risks — "none identified" written out, never implied. Convergence answers "is
+it real"; trade-off answers "is fixing it now a good exchange". A fix that is
+accidentally right is still a wrong decision if nobody asked the second
+question (round-1 F017).
+-->
+
 ### F001 [P?] TODO short title
 
 Severity: P? | Confidence: high/medium/low
 Reported by: TODO scout IDs
+Convergence: TODO n/${scoutCount} | Reproduced: TODO yes/no | Action: TODO fix-eligible/record-only
 Source pointer: TODO file:line
 Evidence:
 - TODO file:line and observed behavior, or unknown
@@ -249,6 +289,8 @@ Plausible failure mode:
 - TODO how it breaks, under what condition/input/timing
 Durable solution hypothesis:
 - TODO owner-clean long-term fix
+Trade-off of fixing now:
+- TODO what the fix costs or risks (contract break, coupling, perf, churn) — required before a fix-eligible finding is applied; write "none identified", never leave it implied
 Disconfirming check:
 - TODO read-only check that would prove this false
 

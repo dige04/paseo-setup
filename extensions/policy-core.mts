@@ -688,6 +688,149 @@ export function teamToolBlockReason(
 // ---------------------------------------------------------------------------
 
 const SUPERVISOR_RECOVERY_PURPOSES = new Set(["recovery", "bootstrap"]);
+const HARNESS_AGENT_ROLES = new Set([
+	"observer",
+	"writer",
+	"reviewer",
+	"lead",
+	"supervisor",
+]);
+const HARNESS_RETENTION = new Set(["ephemeral", "keep"]);
+
+/** Machine ownership labels required on every team-created Paseo agent. */
+export function lifecycleLabelsBlockReason(args: unknown): string | null {
+	if (typeof args !== "object" || args === null) {
+		return "create_agent requires an args object with lifecycle labels.";
+	}
+	const labels = (args as Record<string, unknown>).labels;
+	if (typeof labels !== "object" || labels === null || Array.isArray(labels)) {
+		return "create_agent requires a labels object with harness.owner/run/project/role/task/retention.";
+	}
+	const map = labels as Record<string, unknown>;
+	if (map["harness.owner"] !== "paseo-claude-team") {
+		return 'create_agent labels["harness.owner"] must be "paseo-claude-team".';
+	}
+	for (const key of ["harness.run", "harness.project", "harness.task"]) {
+		if (typeof map[key] !== "string" || map[key].trim().length === 0) {
+			return `create_agent labels["${key}"] is required.`;
+		}
+	}
+	if (typeof map["harness.role"] !== "string" || !HARNESS_AGENT_ROLES.has(map["harness.role"])) {
+		return `create_agent labels["harness.role"] must be one of ${[...HARNESS_AGENT_ROLES].join(", ")}.`;
+	}
+	if (typeof map["harness.retention"] !== "string" || !HARNESS_RETENTION.has(map["harness.retention"])) {
+		return 'create_agent labels["harness.retention"] must be "ephemeral" or "keep".';
+	}
+	return null;
+}
+
+/**
+ * Lifecycle labels are immutable after creation. Paseo merge-patches labels on
+ * update_agent, so a patch that touches any harness.* key can rewrite the
+ * ownership contract of a live agent — flipping harness.retention to
+ * "ephemeral" REMOVES the reconciler's confirmed retention_keep veto and
+ * manufactures a cleanup proposal. Fail closed on malformed shapes.
+ */
+/**
+ * Per-role admission for the four pack skills. Exposing every skill to every
+ * role is skill pollution: a Peer that loads paseo-team-lead drifts from its
+ * bounded task into orchestration it has no authority to execute, and
+ * paseo-premise-audit is whole-project scope handed to a one-scope agent.
+ *
+ * Peer admission is further bound to the current brief's DISPOSITION — the
+ * reviewer skill belongs to an independent-reviewer turn and the premise audit
+ * to a solution-architect turn, per docs/review-instruments.md. Non-pack
+ * skills are out of scope here. config/skill-admission.json mirrors this
+ * table for humans; test asserts the two never drift.
+ */
+export const PACK_SKILLS = Object.freeze([
+	"paseo-team-lead",
+	"paseo-ultra-review",
+	"paseo-ocr-reviewer",
+	"paseo-premise-audit",
+	"repo-refresh",
+]);
+export const SKILL_ADMISSION: Readonly<Record<TeamRole, Readonly<Record<string, string | null>>>> = Object.freeze({
+	// value: null = active; string = required DISPOSITION; absent = disabled.
+	lead: Object.freeze({ "paseo-team-lead": null, "paseo-ultra-review": null }),
+	peer: Object.freeze({
+		"paseo-ocr-reviewer": "independent-reviewer",
+		"paseo-premise-audit": "solution-architect",
+	}),
+	supervisor: Object.freeze({}),
+});
+
+export function skillBlockReason(
+	role: TeamRole,
+	skillName: unknown,
+	brief: ParsedTaskBrief | null,
+): string | null {
+	if (typeof skillName !== "string" || skillName.trim() === "") {
+		return "Skill invocation without a recognizable skill name. Refusing fail-closed.";
+	}
+	// Normalize before the membership test so path/scheme/case variants
+	// (skills/x, ./skills/x, skill://x, x/SKILL.md, X) cannot slip a gated pack
+	// skill past admission. Defense in depth: Claude's Skill contract already
+	// passes an exact bare name, but the gate must not depend on that.
+	const name = skillName
+		.trim()
+		.replace(/^skill:\/\//i, "")
+		.replace(/^\.?\/?(?:skills\/)?/, "")
+		.replace(/\/(?:SKILL(?:\.md)?)?$/i, "")
+		.toLowerCase();
+	if (!PACK_SKILLS.includes(name)) return null;
+	const admission = SKILL_ADMISSION[role];
+	if (!(name in admission)) {
+		return `Skill "${name}" is not admitted for the ${role} role. Admitted: ${Object.keys(admission).sort().join(", ") || "(none)"}. Skill visibility is not authority.`;
+	}
+	const requiredDisposition = admission[name];
+	if (requiredDisposition !== null) {
+		// Only a valid V3 brief can carry authority — the same legacy guard every
+		// sibling check applies (resolvePeerMode, peerAuthority, peer_ask_lead).
+		// A V1/V2 header with a column-0 "DISPOSITION:" line is untrusted text.
+		const disposition =
+			brief !== null && brief.version === 3 && brief.malformed.length === 0
+				? brief.fields.get("DISPOSITION")?.trim() ?? null
+				: null;
+		if (disposition !== requiredDisposition) {
+			return `Skill "${name}" requires the current V3 brief to carry DISPOSITION: ${requiredDisposition} (current: ${disposition ?? "no valid V3 brief"}). Ask the Lead for a matching assignment.`;
+		}
+	}
+	return null;
+}
+
+export function updateAgentLabelsBlockReason(args: unknown): string | null {
+	if (typeof args !== "object" || args === null) {
+		return "update_agent requires an args object. Refusing fail-closed.";
+	}
+	const labels = (args as Record<string, unknown>).labels;
+	if (labels === undefined) return null;
+	if (typeof labels !== "object" || labels === null || Array.isArray(labels)) {
+		return "update_agent labels must be a plain object when present. Refusing fail-closed.";
+	}
+	// Reflect.ownKeys catches a `{"__proto__": {...}}` payload that Object.keys
+	// misses; normalization catches case/whitespace variants the daemon might
+	// fold server-side. Either would otherwise slip a harness.* patch through.
+	const proto = Object.getPrototypeOf(labels);
+	if (proto !== Object.prototype && proto !== null) {
+		return "update_agent labels must be a plain object (unexpected prototype). Refusing fail-closed.";
+	}
+	// Labels are a string→string map. A non-string value (e.g. the object value
+	// in a `{"__proto__": {...}}` payload) is malformed — reject before any
+	// harness.* check so a nested lifecycle key cannot ride in on a weird shape.
+	const ownKeys = Reflect.ownKeys(labels).filter((key): key is string => typeof key === "string");
+	for (const key of ownKeys) {
+		if (typeof (labels as Record<string, unknown>)[key] !== "string") {
+			return `update_agent label "${key}" must have a string value. Refusing fail-closed.`;
+		}
+	}
+	const touched = ownKeys.filter((key) => key.trim().toLowerCase().normalize("NFKC").startsWith("harness."));
+	if (touched.length > 0) {
+		return `update_agent must not patch lifecycle labels (${touched.sort().join(", ")}). They are set once at create_agent and are the reconciler's ownership evidence; changing harness.retention on a live agent would convert a keep veto into a cleanup candidate.`;
+	}
+	return null;
+}
+
 /**
  * Argument-level gate for supervisor create_agent through the MCP proxy.
  * The supervisor may create exactly ONE kind of agent: a successor Lead
@@ -704,6 +847,8 @@ export function supervisorCreateAgentArgsBlockReason(
 		return "Supervisor create_agent requires an args object (provider, labels, settings). Refusing fail-closed.";
 	}
 	const rec = args as Record<string, unknown>;
+	const lifecycleReason = lifecycleLabelsBlockReason(args);
+	if (lifecycleReason) return lifecycleReason;
 	const provider = typeof rec.provider === "string" ? rec.provider : "";
 	// claude-lead/<model-id>. Paseo splits at the FIRST slash only, so the model
 	// id may itself contain slashes; require the lead provider and a non-empty
@@ -716,6 +861,9 @@ export function supervisorCreateAgentArgsBlockReason(
 		return "Supervisor create_agent requires labels to prove this is a gated recovery action.";
 	}
 	const labelMap = labels as Record<string, unknown>;
+	if (labelMap["harness.role"] !== "lead") {
+		return 'Supervisor recovery create_agent labels["harness.role"] must be "lead".';
+	}
 	const purpose = labelMap.purpose;
 	if (
 		typeof purpose !== "string" ||

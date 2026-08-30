@@ -77,15 +77,17 @@ giờ xuất hiện trong output hay error:
 # Endpoint value NẰM TRONG ENV (ví dụ PASEO_HOST_B), cluster file chỉ tên:
 node scripts/remote-paseo.mjs health --host-id <id>
 node scripts/remote-paseo.mjs providers --host-id <id>
-node scripts/remote-paseo.mjs models --host-id <id> --provider pi-peer
+node scripts/remote-paseo.mjs models --host-id <id> --provider claude-peer
 node scripts/remote-paseo.mjs workspaces --host-id <id>
 node scripts/remote-paseo.mjs workspace-create --host-id <id> --path <path-on-remote> \
   --isolation local|worktree --title <t>
 # reviewer workspace: --disposition independent-reviewer ép --isolation worktree,
 # từ chối local (REVIEW_ISOLATION_INVALID); worktree fail → BLOCKED: REVIEW_WORKTREE_UNAVAILABLE
 node scripts/remote-paseo.mjs run --host-id <id> \
-  --provider pi-peer/<pi-provider>/<model-id> --thinking <level> \
-  --workspace <wks-id> --title <t> --brief <task-file>
+  --provider claude-peer/<provider>/<model-id> --thinking <level> \
+  --workspace <wks-id> --title <t> \
+  --labels harness.owner=paseo-claude-team,harness.run=<run-id>,harness.project=<project-id>,harness.role=<role>,harness.task=<TASK_ID>,harness.retention=ephemeral \
+  --brief <task-file>
 node scripts/remote-paseo.mjs status --agent-ref <host-id>/<agent-id>
 node scripts/remote-paseo.mjs send --agent-ref <host-id>/<agent-id> --prompt <text>
 node scripts/remote-paseo.mjs cancel --agent-ref <host-id>/<agent-id>

@@ -19,7 +19,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = join(root, "scripts");
 const installed = mkdtempSync(join(tmpdir(), "paseo-installed-support-"));
 const unrelatedCwd = mkdtempSync(join(tmpdir(), "paseo-unrelated-cwd-"));
-for (const file of ["lib-common.mjs", "remote-paseo.mjs", "model-routing.mjs", "reliability.mjs", "team-communication.mjs", "watchdog.mjs", "ocr-review.mjs", "ocr-setup.mjs", "ultra-review-report.mjs", "team-scripts-path.mjs"]) {
+for (const file of ["lib-common.mjs", "remote-paseo.mjs", "model-routing.mjs", "reliability.mjs", "reconcile-core.mjs", "reconcile-observer.mjs", "policy-digest.mjs", "team-communication.mjs", "watchdog.mjs", "ocr-review.mjs", "ocr-setup.mjs", "ultra-review-report.mjs", "team-scripts-path.mjs"]) {
   cpSync(join(source, file), join(installed, file));
 }
 
@@ -213,7 +213,7 @@ const CLAUDE_SKILL_LOOP = {
 for (const [installer, pattern] of Object.entries(CLAUDE_SKILL_LOOP)) {
   const match = installerCode(installer).match(pattern);
   assert.ok(match, `${installer} has no Claude skills install loop`);
-  for (const skill of ["paseo-team-lead", "paseo-ocr-reviewer", "paseo-ultra-review", "paseo-premise-audit"]) {
+  for (const skill of ["paseo-team-lead", "paseo-ocr-reviewer", "paseo-ultra-review", "paseo-premise-audit", "repo-refresh"]) {
     assert.ok(
       existsSync(join(root, "skills", skill, "SKILL.md")),
       `skills/${skill}/SKILL.md is missing from the repo`,
@@ -255,6 +255,95 @@ for (const [installer, pattern] of Object.entries(CLAUDE_SKILL_LOOP)) {
     /claude-/.test(providerLine) || /THIS runtime/.test(providerLine),
     "ASSIGNED_PASEO_PROVIDER must not name only the pi-* provider family",
   );
+}
+
+// ---------------------------------------------------------------------------
+// Provider config hardening. Each role provider must carry an owner-approved
+// "models" allowlist (Paseo custom-provider shape: [{id, label}]), and the
+// built-in role-less "claude" provider must be disabled. The allowlist
+// intentionally REPLACES the runtime catalog, so any drift here is a routing
+// change, not cosmetics — the expected sets are asserted exactly, order
+// included, because the first entry is the default a human reaches for.
+// ---------------------------------------------------------------------------
+{
+	const examplePath = join(root, "config", "paseo.providers.claude.example.json");
+	const exampleText = readFileSync(examplePath, "utf8");
+	const providers = JSON.parse(exampleText)?.agents?.providers ?? {};
+
+	// B2: role-less sessions must not be possible by accident. The three role
+	// providers extend "claude" and keep working with it disabled.
+	assert.deepEqual(
+		providers.claude,
+		{ enabled: false },
+		'example config must disable the built-in "claude" provider and add nothing else to it',
+	);
+
+	const expectedModels = {
+		"claude-supervisor": [
+			{ id: "claude-sonnet-5", label: "Sonnet 5" },
+			{ id: "claude-opus-5", label: "Opus 5" },
+		],
+		"claude-lead": [
+			{ id: "claude-opus-5", label: "Opus 5" },
+			{ id: "claude-sonnet-5", label: "Sonnet 5" },
+		],
+		"claude-peer": [
+			{ id: "claude-sonnet-5", label: "Sonnet 5" },
+			{ id: "claude-opus-5", label: "Opus 5" },
+			{ id: "claude-haiku-4-5", label: "Haiku 4.5" },
+		],
+	};
+	for (const [role, models] of Object.entries(expectedModels)) {
+		const provider = providers[role];
+		assert.ok(provider, `example config is missing provider ${role}`);
+		assert.equal(provider.extends, "claude", `${role} must extend the disabled built-in provider`);
+		assert.ok(Array.isArray(provider.models), `${role} must pin a "models" allowlist array`);
+		assert.deepEqual(
+			provider.models.map(({ id, label }) => ({ id, label })),
+			models,
+			`${role} allowlist must be exactly the owner-approved model set`,
+		);
+	}
+	// additionalModels APPENDS to the runtime catalog; the whole point of the
+	// allowlist is to REPLACE it. Its mere presence anywhere is a defect.
+	assert.ok(
+		!exampleText.includes("additionalModels"),
+		"example config must never use additionalModels",
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Deployed-config git versioning (P0). Both installers must land every
+// install/refresh of the deploy dir as a revertable git commit whose message
+// carries the pack version and policy digest from the DEPLOYED manifest.json,
+// and must degrade LOUDLY when git is missing — a WARNING line, never a
+// silent unversioned deploy. The repo must be bound to the deploy dir
+// variable (-C), never created anywhere else.
+// ---------------------------------------------------------------------------
+{
+	// The cp below is only honest if the source manifest actually ships.
+	assert.ok(existsSync(join(root, "manifest.json")), "manifest.json is missing from the repo root");
+
+	const sh = installerCode("install.sh");
+	assert.ok(sh.includes('cp -f "$ROLE_PACK_ROOT/manifest.json" "$CLAUDE_TEAM_DIR/"'), "install.sh must install manifest.json into the deploy dir");
+	assert.ok(sh.includes("command -v git"), "install.sh must probe for git before versioning");
+	assert.ok(sh.includes('git -C "$CLAUDE_TEAM_DIR" init'), "install.sh must git-init the deploy dir (and only the deploy dir)");
+	assert.ok(sh.includes('git -C "$CLAUDE_TEAM_DIR" add -A'), "install.sh must stage the whole deploy dir");
+	assert.ok(sh.includes('COMMIT_MESSAGE="install $PACK_VERSION $PACK_DIGEST"'), "install.sh first commit must record install <version> <policyDigest>");
+	assert.ok(sh.includes('COMMIT_MESSAGE="refresh $PACK_VERSION $PACK_DIGEST"'), "install.sh refresh commit must record refresh <version> <policyDigest>");
+	assert.ok(sh.includes(".policyDigest"), "install.sh must read the policy digest from the installed manifest (jq-free)");
+	assert.ok(/WARNING: git not found[^\n]*not revertable/.test(sh), "install.sh must warn loudly that routing changes are not revertable when git is missing");
+	assert.ok(!/^\s*git init\b/m.test(sh), "install.sh must never run an unanchored git init");
+
+	const ps = installerCode("install.ps1");
+	assert.ok(ps.includes('Copy-Item (Join-Path $RolePackRoot "manifest.json") $claudeTeamDir -Force'), "install.ps1 must install manifest.json into the deploy dir");
+	assert.ok(ps.includes("Get-Command git"), "install.ps1 must probe for git before versioning");
+	assert.ok(ps.includes("git -C $claudeTeamDir init"), "install.ps1 must git-init the deploy dir (and only the deploy dir)");
+	assert.ok(ps.includes("git -C $claudeTeamDir add -A"), "install.ps1 must stage the whole deploy dir");
+	assert.ok(ps.includes('$commitMessage = "install $packVersion $packDigest"'), "install.ps1 first commit must record install <version> <policyDigest>");
+	assert.ok(ps.includes('$commitMessage = "refresh $packVersion $packDigest"'), "install.ps1 refresh commit must record refresh <version> <policyDigest>");
+	assert.ok(ps.includes(".policyDigest"), "install.ps1 must read the policy digest from the installed manifest (jq-free)");
+	assert.ok(/WARNING: git not found[^\n]*not revertable/.test(ps), "install.ps1 must warn loudly that routing changes are not revertable when git is missing");
 }
 
 console.log("installer contract tests passed");

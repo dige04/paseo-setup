@@ -8,10 +8,23 @@
   },
   "agents": {
     "providers": {
+      "claude": {
+        "enabled": false
+      },
       "claude-supervisor": {
         "extends": "claude",
         "label": "Claude Supervisor",
         "description": "Observation-only governance plane. Never edits product code.",
+        "models": [
+          {
+            "id": "claude-sonnet-5",
+            "label": "Sonnet 5"
+          },
+          {
+            "id": "claude-opus-5",
+            "label": "Opus 5"
+          }
+        ],
         "command": [
           "claude",
           "--settings",
@@ -31,6 +44,16 @@
         "extends": "claude",
         "label": "Claude Lead",
         "description": "Project Lead. The only role that creates and manages Paseo child agents.",
+        "models": [
+          {
+            "id": "claude-opus-5",
+            "label": "Opus 5"
+          },
+          {
+            "id": "claude-sonnet-5",
+            "label": "Sonnet 5"
+          }
+        ],
         "command": [
           "claude",
           "--settings",
@@ -50,6 +73,20 @@
         "extends": "claude",
         "label": "Claude Peer",
         "description": "Bounded worker. Authority comes only from the current V3 task brief.",
+        "models": [
+          {
+            "id": "claude-sonnet-5",
+            "label": "Sonnet 5"
+          },
+          {
+            "id": "claude-opus-5",
+            "label": "Opus 5"
+          },
+          {
+            "id": "claude-haiku-4-5",
+            "label": "Haiku 4.5"
+          }
+        ],
         "command": [
           "claude",
           "--settings",

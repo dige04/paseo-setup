@@ -7,9 +7,9 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } fro
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-
 import {
   ULTRA_REVIEW_ERROR_CODES,
+  findingAction,
   markdownTemplate,
   nextRound,
   slugify,
@@ -316,3 +316,43 @@ for (const [args, code, label] of [
 }
 
 console.log("ultra-review-report tests passed");
+
+// ---------------------------------------------------------------------------
+// Convergence gate — fix-eligible requires reproduction AND (convergence ≥ k
+// OR contract-breaker). The gate exists so a review never fixes on one
+// scout's plausible story (round-1: 3 of 12 fixes landed below this bar).
+// ---------------------------------------------------------------------------
+
+assert.equal(findingAction({ convergence: 7, reproduced: true }), "fix-eligible");
+assert.equal(findingAction({ convergence: 3, reproduced: true }), "fix-eligible");
+assert.equal(findingAction({ convergence: 2, reproduced: true }), "record-only");
+assert.equal(findingAction({ convergence: 1, reproduced: true, contractBreaker: true }), "fix-eligible");
+// Reproduction is non-negotiable — convergence alone never fixes.
+assert.equal(findingAction({ convergence: 10, reproduced: false }), "record-only");
+assert.equal(findingAction({ convergence: 10 }), "record-only");
+assert.equal(findingAction({ convergence: 10, reproduced: "yes" }), "record-only");
+// Fail-closed on malformed shapes.
+assert.equal(findingAction({}), "record-only");
+assert.equal(findingAction({ convergence: NaN, reproduced: true }), "record-only");
+assert.equal(findingAction(), "record-only");
+
+// The scaffold carries the gate columns so a consolidator cannot omit them.
+{
+  const md = markdownTemplate({
+    dateSlug: "26-08-31", reviewName: "x", roundNumber: 1, scope: "s",
+    reportPath: "docs/ultrareview/x.md", priorReports: [], reviewBriefSha256: "a".repeat(64),
+    scoutCount: 10, directiveCount: 0, manifest: null,
+  });
+  assert.match(md, /Convergence: TODO n\/10 \| Reproduced: TODO yes\/no \| Action: TODO/);
+  assert.match(md, /CONVERGENCE GATE \(mandatory on every finding\)/);
+  assert.match(md, /architect-Peer on the root question before fixing/);
+  // Trade-off is the second half of the gate: convergence answers "is it
+  // real", trade-off answers "is fixing it now a good exchange". The template
+  // must force the statement so a fix-eligible finding cannot be applied with
+  // the question silently skipped (round-1 F017 was exactly that).
+  assert.match(md, /Trade-off of fixing now:/);
+  assert.match(md, /TRADE-OFF \(second half of the gate\)/);
+  assert.match(md, /"none identified" written out, never implied/);
+}
+
+console.log("convergence gate tests passed");

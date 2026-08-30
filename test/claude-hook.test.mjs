@@ -323,8 +323,16 @@ assert.ok(
   denial(preToolUse("sup", "mcp__paseo__create_agent", { provider: "claude-peer/claude-sonnet-5", labels: { purpose: "recovery", recovery_for: "p" }, settings: { thinkingOptionId: "high" } }, "supervisor")),
   "a supervisor may not create peers under the recovery exception",
 );
+const lifecycleLabels = {
+  "harness.owner": "paseo-claude-team",
+  "harness.run": "run-1",
+  "harness.project": "proj-1",
+  "harness.role": "lead",
+  "harness.task": "recovery:proj-1",
+  "harness.retention": "ephemeral",
+};
 assert.equal(
-  denial(preToolUse("sup", "mcp__paseo__create_agent", { provider: "claude-lead/claude-opus-5", labels: { purpose: "recovery", recovery_for: "proj-1" }, settings: { thinkingOptionId: "high" } }, "supervisor")),
+  denial(preToolUse("sup", "mcp__paseo__create_agent", { provider: "claude-lead/claude-opus-5", labels: { ...lifecycleLabels, purpose: "recovery", recovery_for: "proj-1" }, settings: { thinkingOptionId: "high" } }, "supervisor")),
   null,
   "a fully-formed lead-recovery create_agent is the one permitted orchestration act",
 );
@@ -334,7 +342,15 @@ assert.equal(
 // ---------------------------------------------------------------------------
 
 submitPrompt("lead", "run the project", "lead");
-assert.equal(denial(preToolUse("lead", "mcp__paseo__create_agent", {}, "lead")), null);
+assert.match(
+  denial(preToolUse("lead", "mcp__paseo__create_agent", {}, "lead")) ?? "",
+  /labels object/,
+  "a Lead cannot create an unowned session that the daily reconciler cannot identify",
+);
+assert.equal(
+  denial(preToolUse("lead", "mcp__paseo__create_agent", { labels: { ...lifecycleLabels, "harness.role": "writer", "harness.task": "T-42" } }, "lead")),
+  null,
+);
 assert.equal(denial(preToolUse("lead", "mcp__paseo__list_providers", {}, "lead")), null);
 assert.equal(denial(preToolUse("lead", "Bash", { command: "git log" }, "lead")), null);
 assert.match(
@@ -404,4 +420,145 @@ runHook({ hook_event_name: "SessionEnd", session_id: "recycle" }, { role: "peer"
 assert.match(denial(preToolUse("recycle", "Write", { file_path: "a" }, "peer")) ?? "", /read-only/);
 
 rmSync(stateDir, { recursive: true, force: true });
+
+
+// ---------------------------------------------------------------------------
+// D-4 — lifecycle labels are immutable after creation. Paseo merge-patches
+// labels on update, so a harness.* patch could flip retention on a live agent
+// and convert the reconciler's keep veto into a cleanup candidate.
+// ---------------------------------------------------------------------------
+
+assert.match(
+  denial(preToolUse("d4-lead", "mcp__paseo__update_agent", { agentId: "a1", labels: { "harness.retention": "ephemeral" } }, "lead")) ?? "",
+  /must not patch lifecycle labels/,
+);
+assert.match(
+  denial(preToolUse("d4-lead", "mcp__paseo__update_agent", { agentId: "a1", labels: { "harness.owner": "someone-else" } }, "lead")) ?? "",
+  /must not patch lifecycle labels/,
+);
+assert.equal(
+  denial(preToolUse("d4-lead", "mcp__paseo__update_agent", { agentId: "a1", labels: { note: "renamed" } }, "lead")),
+  null,
+  "non-harness label patches remain allowed",
+);
+assert.equal(
+  denial(preToolUse("d4-lead", "mcp__paseo__update_agent", { agentId: "a1", title: "retitle" }, "lead")),
+  null,
+  "title-only updates remain allowed",
+);
+assert.match(
+  denial(preToolUse("d4-lead", "mcp__paseo__update_agent", { agentId: "a1", labels: ["harness.owner"] }, "lead")) ?? "",
+  /fail-closed/i,
+  "malformed labels shape fails closed",
+);
+
+// ---------------------------------------------------------------------------
+// V6 — skill admission. A skill is a behavior package, not a read-only
+// builtin; it must not ride the read-only fallthrough.
+// ---------------------------------------------------------------------------
+
+// Peer without a matching brief cannot load pack skills.
+assert.match(
+  denial(preToolUse("v6-peer", "Skill", { skill: "paseo-team-lead" }, "peer")) ?? "",
+  /not admitted for the peer role/,
+);
+assert.match(
+  denial(preToolUse("v6-peer", "Skill", { skill: "paseo-ocr-reviewer" }, "peer")) ?? "",
+  /DISPOSITION: independent-reviewer/,
+);
+// Supervisor gets none of the four.
+assert.match(
+  denial(preToolUse("v6-sup", "Skill", { skill: "paseo-ultra-review" }, "supervisor")) ?? "",
+  /not admitted for the supervisor role/,
+);
+// Lead may load its own skills.
+assert.equal(denial(preToolUse("v6-lead", "Skill", { skill: "paseo-team-lead" }, "lead")), null);
+assert.equal(denial(preToolUse("v6-lead", "Skill", { skill: "paseo-ultra-review" }, "lead")), null);
+// Non-pack skills are out of scope for this gate.
+assert.equal(denial(preToolUse("v6-peer", "Skill", { skill: "some-user-skill" }, "peer")), null);
+// Missing skill name fails closed.
+assert.match(
+  denial(preToolUse("v6-peer", "Skill", {}, "peer")) ?? "",
+  /fail-closed/i,
+);
+// Peer WITH the right brief disposition may load the reviewer skill.
+{
+  const sessionId = "v6-peer-briefed";
+  submitPrompt(sessionId, V3([
+    "TASK_ID: T-V6",
+    "DISPOSITION: independent-reviewer",
+    "MODE: read-only",
+    "EDIT_AUTHORITY: denied",
+  ]), "peer");
+  assert.equal(
+    denial(preToolUse(sessionId, "Skill", { skill: "paseo-ocr-reviewer" }, "peer")),
+    null,
+    "an independent-reviewer turn may load the reviewer skill",
+  );
+  assert.match(
+    denial(preToolUse(sessionId, "Skill", { skill: "paseo-premise-audit" }, "peer")) ?? "",
+    /DISPOSITION: solution-architect/,
+    "the same brief does not open the premise audit",
+  );
+}
+
+// Review F009 — skill admission must not be bypassable by path/scheme/case
+// variants of a gated pack skill name.
+for (const variant of ["skills/paseo-team-lead", "./skills/paseo-team-lead", "skill://paseo-team-lead", "paseo-team-lead/SKILL.md", "PASEO-TEAM-LEAD", "paseo-team-lead/"]) {
+  assert.match(
+    denial(preToolUse("f009", "Skill", { skill: variant }, "peer")) ?? "",
+    /not admitted for the peer role|DISPOSITION/,
+    `skill variant "${variant}" must not slip past admission`,
+  );
+}
+
+// Review F017 — update_agent label gate must catch prototype-pollution and
+// case/whitespace-normalized harness.* keys.
+assert.match(
+  denial(preToolUse("f017", "mcp__paseo__update_agent", { agentId: "a1", labels: JSON.parse('{"__proto__":{"harness.retention":"ephemeral"}}') }, "lead")) ?? "",
+  /must not patch lifecycle labels|must have a string value|unexpected prototype/,
+  "a __proto__ label payload must not slip a harness.* patch through",
+);
+assert.match(
+  denial(preToolUse("f017", "mcp__paseo__update_agent", { agentId: "a1", labels: { " HARNESS.retention ": "ephemeral" } }, "lead")) ?? "",
+  /must not patch lifecycle labels/,
+  "case/whitespace-variant harness key must be caught",
+);
+
+// Legacy V1/V2 briefs are untrusted text and must not satisfy the
+// DISPOSITION gate (adversarial repro: a column-0 "DISPOSITION:" line under a
+// V1 header granted the reviewer skill while the same turn printed
+// EDIT: denied).
+{
+  const sessionId = "v6-peer-legacy";
+  submitPrompt(sessionId, [
+    "PASEO_TEAM_TASK_V1",
+    "MODE: read-only",
+    "DISPOSITION: independent-reviewer",
+    "",
+    "do the review",
+  ].join("\n"), "peer");
+  assert.match(
+    denial(preToolUse(sessionId, "Skill", { skill: "paseo-ocr-reviewer" }, "peer")) ?? "",
+    /no valid V3 brief|DISPOSITION: independent-reviewer/,
+    "a legacy brief must never open a disposition-gated skill",
+  );
+}
+
+// The .mts table and config/skill-admission.json must never drift (the D-5
+// parity lesson: two vocabularies need a set-equality test).
+{
+  const { readFileSync } = await import("node:fs");
+  const config = JSON.parse(readFileSync(join(root, "config", "skill-admission.json"), "utf8"));
+  const core = await import("../extensions/policy-core.mts");
+  assert.deepEqual([...core.PACK_SKILLS].sort(), [...config.packSkills].sort());
+  for (const role of ["lead", "peer", "supervisor"]) {
+    assert.deepEqual(
+      { ...core.SKILL_ADMISSION[role] },
+      config.roles[role],
+      `admission for ${role} must match config/skill-admission.json`,
+    );
+  }
+}
+
 console.log("claude hook tests passed");

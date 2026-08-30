@@ -197,6 +197,26 @@ from the project's current working directory.
 
 For EVERY `create_agent`, run this exact cycle. Do not skip steps.
 
+### Lifecycle labels (mandatory)
+
+Every team agent must be created with these supported Paseo agent labels:
+
+```text
+harness.owner=paseo-claude-team
+harness.run=<stable correlation id for this Lead run>
+harness.project=<Paseo project id>
+harness.role=observer|writer|reviewer|lead|supervisor
+harness.task=<TASK_ID>
+harness.retention=ephemeral|keep
+```
+
+Use the current Lead's `PASEO_AGENT_ID` as `harness.run` when available;
+otherwise generate one correlation id and reuse it for the whole run. Default
+to `ephemeral`; `keep` is an explicit human veto, never an inference. These are
+machine labels for selection and reconciliation. Do not create `done` or
+mutable status labels: accepted sessions are archived and disappear from the
+active surface instead of accumulating a permanent completion marker.
+
 1. Pick `MODEL_CLASS` from task risk + disposition (classes table below).
 2. Pick `HOST_ID` from the controller-local cluster routing file
    `~/.paseo-pi-team/cluster-routing.local.json` (capability filter: writers
@@ -270,8 +290,9 @@ This is the exact failure mode the cluster config exists to prevent.
    convention `title: "review:<TASK_ID>"` (or a `worktreeSlug` containing
    `review`) with `isolation: "worktree"` — the policy extension blocks a
    review-marked workspace that requests local isolation.
-9. Call `create_agent` with the exact provider string + thinking. NEVER omit
-   the model to inherit a daemon default.
+9. Call `create_agent` with the exact provider string + thinking and all six
+   lifecycle labels above in its `labels` object. NEVER omit the model to
+   inherit a daemon default.
 10. Call `get_agent_status` and bounded-poll `snapshot.runtimeInfo.model` and
     `runtimeInfo.thinkingOptionId` until startup identity is populated. Missing
     identity during the bounded startup window is
@@ -316,7 +337,7 @@ local one. In the commands below, `<id>` is the HOST_ID from
    a local/standalone workspace for review.
 7. Create the agent on the remote daemon (background by default; add
    `--wait-timeout <dur>` to wait for completion):
-   `node <PASEO_TEAM_SCRIPTS_DIR>/remote-paseo.mjs run --host-id <id> --provider <role-provider>/<pi-provider>/<model-id> --thinking <level> --workspace <wks> --title <t> --brief <brief-file>`
+   `node <PASEO_TEAM_SCRIPTS_DIR>/remote-paseo.mjs run --host-id <id> --provider <role-provider>/<pi-provider>/<model-id> --thinking <level> --workspace <wks> --title <t> --labels harness.owner=paseo-claude-team,harness.run=<run-id>,harness.project=<project-id>,harness.role=<role>,harness.task=<TASK_ID>,harness.retention=ephemeral --brief <brief-file>`
    The envelope returns `agentRef: <host-id>/<agent-id>` — record it.
 8. Verify the OBSERVED runtime identity on the remote daemon. The wrapper's
    `run` command performs a bounded startup poll; use `--startup-timeout <dur>`
@@ -378,6 +399,18 @@ Use `team_watchdog` for a bounded observation pass over running agents. It uses 
 For every stale result, confirm with `get_agent_status`, `get_agent_activity`, pending permissions, daemon/host health and workspace/Git state. A long-running build/test/cmd is valid when the Peer or brief marked it expected; do not cancel or replace it based on timestamp alone.
 
 Do not repeatedly interrupt a healthy worker.
+
+Run the observation-only daily lifecycle pass when reconciling accumulated
+sessions and worktrees:
+
+```text
+node <PASEO_TEAM_SCRIPTS_DIR>/watchdog.mjs '{"mode":"daily-reconcile","project":"<paseo-project-id>","includeOrphans":true}'
+```
+
+The report always carries `mutates:false`. A cleanup candidate is a request for
+human review, not archive authority. `idle`, age, a branch name, or a label are
+never completion evidence. Any unknown ownership, process, terminal, Git,
+attention, or reachability evidence means KEEP / `cannot_verify`.
 
 Use `send_agent_prompt` only for:
 
@@ -484,6 +517,12 @@ HUMAN_ACTION_REQUIRED:
 possible. Without them each round re-derives the plan from scratch and the same
 wrong premise gets rebuilt; the drift shows up only when someone later asks why
 three adapters exist.
+
+After the report is accepted, soft-archive the completed Peer sessions. Remove
+any cleaner-owned temporary plan entry from the active index instead of changing
+it to `done`; durable product docs, ADRs, and review reports are not temporary
+plans and must not be swept. Leave workspace/worktree/branch retirement to the
+daily reconciliation queue and its human evidence check.
 
 Never merge or deploy yourself — that decision belongs to Human.
 

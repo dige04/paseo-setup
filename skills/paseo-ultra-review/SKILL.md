@@ -48,6 +48,18 @@ denies the tool call. Know which kind you dispatched:
 |---|---|---|
 | `claude-peer` | `PreToolUse` hook, fail-closed, holds under `bypassPermissions` | a write is denied |
 | `agy` (ACP) | **nothing in this pack** — the hook is passive without `PASEO_CLAUDE_ROLE` | a write succeeds |
+| `omp` | **nothing in this pack** — prompt + session mode only | a write succeeds, **and the full Paseo control plane is reachable** (below) |
+
+**Measured, not assumed (probe 2026-08-31, agent `7a2ebbcc`):** an omp seat sees
+**zero** tools named `mcp__paseo__*` but **35 bare-named orchestration tools** —
+`create_agent`, `send_agent_prompt`, `kill_agent`, `archive_workspace`,
+`create_schedule`, `respond_to_permission`, … So (1) any check that filters on
+the `mcp__paseo__` prefix is blind for omp seats — probe by bare name too;
+(2) an omp scout that drifts off its brief *can* spawn, kill, or archive — the
+brief must prohibit orchestration explicitly, every time; (3) run
+`governance-graph --assert` during and after a round: invariant A4
+(peer-orchestrates) is the compensating **detection** for this gap until a
+daemon-level per-provider injection bound exists.
 
 For an `agy` scout the ACP session mode is the only bound available, and the
 closest fit is `plan`. Even that is a *disposition*, not a wall: agy exposes
@@ -190,6 +202,47 @@ against the enforcement table above: an `agy` scout's read-only status rests on
 its ACP mode and its prompt, not on the hook. Record each scout's provider in
 the roster so the guarantee is visible rather than assumed.
 
+### Fleet geometry — providers are the unit of diversity
+
+Round-1 calibration data made the previous paragraph a rule: nine scouts on
+one model plus one probe on a second provider, and the single probe was the
+sole source of three of the round's second-order findings. One model's blind
+spots are correlated — a second provider is not more of the same, it is a
+different instrument.
+
+Default geometry for a full round:
+
+- **Coverage fleet** — the `FAST_READ` majority. Cheap, broad,
+  roster-accounted; owns the coverage floor, not the deep calls.
+- **Semantic pair** — exactly two `REASONING_HIGH` scouts on two **different**
+  providers, same scope, independently briefed, never seeded with each other's
+  output. Their disagreement at consolidation is signal, not friction to
+  resolve early.
+- **Probe** — one scout on a third provider when one is available, briefed
+  like any other scout.
+
+Hard rule: a fleet where one model holds ≥90% of the seats re-confirms what
+that model already sees and re-misses what it misses, N times over. Span at
+least two providers and record the split in the roster. Verify each seat's
+model through the normal routing cycle — the geometry names classes, not
+model IDs.
+
+#### Default mapping — the two-provider stack this repo runs
+
+Verified live against the daemon on 2026-08-31. Standing rule regardless:
+**every seat is re-verified through the routing cycle at dispatch time** —
+model IDs drift, and this mapping is a default, not a bypass of that cycle.
+
+- **Semantic pair** — `claude-peer`/`claude-opus-5` (thinking `high` or
+  `xhigh`) × `omp/google-antigravity/gemini-3.1-pro` (thinking `high`).
+  Two strong models, two providers.
+- **Coverage fleet** — `omp/google-antigravity/gemini-3.7-flash`, omp session
+  mode `full`. Round-1 lesson: mode `write` gates every bash call into a
+  permission storm; enforcement for omp seats is prompt+mode, not the hook.
+- **Probe** — one `claude-peer` seat (hook-enforced read-only guarantee).
+  With a two-provider stack the semantic pair already spans both providers,
+  so the probe's job here is the enforcement guarantee, not extra diversity.
+
 ## Scout packet
 
 Each scout's V3 brief task body must contain:
@@ -204,6 +257,8 @@ Each scout's V3 brief task body must contain:
   durable solution hypothesis, and a disconfirming check when one exists;
 - explicit permission to return incomplete or speculative candidates rather than
   suppressing them;
+- the standing instruction: **do not stop after the first finding, and do not
+  silently omit difficult or large files** — name every file skipped and why;
 - the read-only restrictions above, stated in full.
 
 An example brief is in `examples/ultra-review-scout-task.md`.
@@ -335,9 +390,62 @@ in the pack advisory.
 5. Record `SCOUTS_PLANNED`, `SCOUTS_SUBMITTED`, and `SCOUTS_MISSING`. A missing
    scout is a stated limitation, never silent partial coverage — the report must
    not read as full coverage when a scout never returned.
+6. Do not spend a reviewer reconfirming a proof that is already recorded.
+   Re-review needs **material uncertainty** — an uncovered site, a failed
+   repro, a contested mechanism — not ceremony. Point the next reader at the
+   recorded evidence instead.
 
 Do not add raw candidate ledgers, execution receipts, preservation counters, or
 merge-note checklists. The audience is an agent that must verify and fix bugs.
+
+## Convergence gate — what may be FIXED, not just recorded
+
+Ten overlapping scouts exist so that **convergence filters noise**, not only so
+more bugs are found. The suppression asymmetry applies to the FIX phase too: an
+applied fix is committed and hard to walk back; a recorded finding can be fixed
+any time. So the bias is record, and fixing needs a bar:
+
+- Every finding carries `Convergence: n/<planned>`, `Reproduced: yes|no`, and
+  `Action: fix-eligible | record-only` — computed by
+  `findingAction()` in `scripts/ultra-review-report.mjs`, never hand-picked:
+  `fix-eligible ⇔ Reproduced AND (Convergence ≥ 3 OR contract-breaker)`.
+- **Reproduction is non-negotiable.** Ten scouts agreeing on a failure nobody
+  reproduced is ten shares of one speculation. One scout plus a reproduced
+  contract-breaker may fix; ten scouts without a repro may not.
+- **Trade-off is the second half of the gate.** A `fix-eligible` finding is
+  still not *applied* until its `Trade-off of fixing now` line states what the
+  fix costs or risks — "none identified" written out, never implied.
+  Convergence answers "is it real"; trade-off answers "is fixing it now a good
+  exchange". A fix that is accidentally right is still a wrong decision if
+  nobody asked the second question.
+- `record-only` is not rejection — it enters the verification queue or round 2.
+
+## Root-cause reopen — the mandatory back-edge
+
+When **two or more findings share one owning mechanism** (one lifecycle, one
+ownership boundary, one contract, one foundation function), fixing any of them
+individually is symptom-patching. Before ANY of those findings is fixed:
+
+1. The Lead dispatches an **architect-Peer** with an *outcome-level* brief:
+   the converged findings, the shared mechanism hypothesis, and the open
+   question — "one root or N independent defects? smallest durable design?"
+2. The brief must carry `REOPEN_WHEN` and explicit permission to **counter the
+   Lead's framing** — the Lead's grouping is provisional, not a conclusion.
+   A pre-solved brief ("confirm these share a root") makes the Peer a
+   confirmation function and voids the step.
+3. Only after the architect's ruling does fixing start — at the root if it
+   ruled root, individually if it ruled independent.
+
+**The counter has a bar too.** A Peer counter must carry evidence, impact, and
+a premise to reopen; performative contrarianism — disagreement without those
+three — is recorded and not rewarded. The invitation to counter the Lead's
+framing is not an invitation to perform disagreement. (Source: rooms guide,
+Lead profile, via `research/doctrine/03-rooms-setup-guide-check.md`.)
+
+This is the round-1 lesson made rule: seven scouts converged on one path
+predicate and the Lead patched it lexically in place — treating the strongest
+convergence signal of the round as a list of point fixes instead of as the
+question "why do seven traces meet here?"
 
 ## Handoff
 

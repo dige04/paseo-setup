@@ -45,6 +45,60 @@ const PINNED = Object.freeze({
 	nodeMajor: 22,
 });
 
+// Fail closed on unknown flags. `--stict` running non-strict and printing
+// ok:true is exactly the failure --strict exists to prevent (AXI principle #6:
+// a swallowed flag silently disables a safety gate).
+const KNOWN_FLAGS = new Set([
+	"--json", "--strict", "--skip-models", "--hosts", "--version",
+	"--host-id", "--cluster", "--routes",
+]);
+const VALUE_FLAGS = new Set(["--host-id", "--cluster", "--routes"]);
+{
+	const argv = process.argv.slice(2);
+	for (let i = 0; i < argv.length; i += 1) {
+		const token = argv[i];
+		if (VALUE_FLAGS.has(token)) {
+			// The value must exist and must not itself be a flag, or a typo like
+			// `--routes --stict` silently swallows `--stict` as the value and the
+			// unknown-flag gate never fires — the exact bypass --strict guards.
+			const value = argv[i + 1];
+			if (value === undefined || value.startsWith("-")) {
+				console.error(JSON.stringify({ ok: false, error: "missing_flag_value", flag: token }));
+				process.exit(2);
+			}
+			i += 1;
+			continue;
+		}
+		if (!KNOWN_FLAGS.has(token)) {
+			console.error(JSON.stringify({
+				ok: false,
+				error: "unknown_flag",
+				flag: token,
+				known: [...KNOWN_FLAGS].sort(),
+				hint: token.startsWith("--st") ? "did you mean --strict?" : undefined,
+			}));
+			process.exit(2);
+		}
+	}
+}
+
+import { policyDigest } from "./policy-digest.mjs";
+
+// --version: print the pack identity and the digest of the governing bytes,
+// nothing else. Two hosts on the same version MUST print the same digest;
+// a one-byte prompt edit changes it. Reports embed this so a finding can be
+// attributed to the exact policy that produced it.
+if (process.argv.includes("--version")) {
+	const digest = policyDigest();
+	console.log(JSON.stringify({
+		name: "paseo-claude-team",
+		version: digest.version,
+		policyDigest: digest.policyDigest,
+		fileCount: digest.fileCount,
+	}, null, 2));
+	process.exit(0);
+}
+
 const wantJson = process.argv.includes("--json");
 const skipModels = process.argv.includes("--skip-models");
 const wantStrict = process.argv.includes("--strict");
@@ -794,9 +848,14 @@ if (cluster) {
 }
 
 if (wantJson) {
+	let digestReceipt = null;
+	try {
+		const digest = policyDigest();
+		digestReceipt = { version: digest.version, policyDigest: digest.policyDigest };
+	} catch { /* digest failure is reported as null, never fabricated */ }
 	console.log(
 		JSON.stringify(
-			{ checks: results, ok: !results.some((r) => r.status === "fail") },
+			{ checks: results, ok: !results.some((r) => r.status === "fail"), policy: digestReceipt },
 			null,
 			2,
 		),

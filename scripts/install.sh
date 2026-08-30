@@ -41,6 +41,9 @@ TEAM_SUPPORT_FILES=(
   # "./lib-common.mjs" and would fail at import time without it.
   lib-common.mjs
   reliability.mjs
+  reconcile-core.mjs
+  reconcile-observer.mjs
+  policy-digest.mjs
   watchdog.mjs
   team-communication.mjs
   ocr-review.mjs
@@ -68,7 +71,7 @@ for support_file in "${TEAM_SUPPORT_FILES[@]}"; do
 done
 
 # The policy says what an agent MAY do; the skills say HOW the work is run.
-for skill in paseo-team-lead paseo-ocr-reviewer paseo-ultra-review paseo-premise-audit; do
+for skill in paseo-team-lead paseo-ocr-reviewer paseo-ultra-review paseo-premise-audit repo-refresh; do
   rm -rf "$CLAUDE_SKILLS_DIR/$skill"
   cp -R "$ROLE_PACK_ROOT/skills/$skill" "$CLAUDE_SKILLS_DIR/$skill"
 done
@@ -86,6 +89,43 @@ writeFileSync(out, JSON.stringify({ hooks: {
   PreToolUse: [entry], SessionEnd: [entry],
 } }, null, 2) + "\n");
 ' "$CLAUDE_SETTINGS" "$HOOK_PATH"
+
+# Install provenance: the deployed manifest.json carries the pack version and
+# policy digest; the git commit message below is derived from the DEPLOYED
+# copy, so the recorded digest is the one that actually landed on disk.
+cp -f "$ROLE_PACK_ROOT/manifest.json" "$CLAUDE_TEAM_DIR/"
+
+# Deployed-config git versioning (P0). The deploy dir carries live routing and
+# policy, so every install/refresh must land as a revertable commit. Without
+# git we degrade LOUDLY — a WARNING and exit 0, never a silent unversioned
+# deploy. The repo is created in the deploy dir and nowhere else.
+if command -v git >/dev/null 2>&1; then
+  PACK_VERSION="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version' "$CLAUDE_TEAM_DIR/manifest.json")"
+  PACK_DIGEST="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).policyDigest' "$CLAUDE_TEAM_DIR/manifest.json")"
+  # state/ is runtime-mutable (mode 700); it must never enter config history.
+  printf 'state/\n' > "$CLAUDE_TEAM_DIR/.gitignore"
+  if [[ -d "$CLAUDE_TEAM_DIR/.git" ]]; then
+    COMMIT_MESSAGE="refresh $PACK_VERSION $PACK_DIGEST"
+  else
+    # [[ -d .git ]] above is an exact-directory test on purpose: a deploy dir
+    # nested inside some parent repo must still get its OWN repo, not commits
+    # into the parent.
+    git -C "$CLAUDE_TEAM_DIR" init --quiet
+    COMMIT_MESSAGE="install $PACK_VERSION $PACK_DIGEST"
+  fi
+  git -C "$CLAUDE_TEAM_DIR" add -A
+  # Pinned identity + signing off so the commit succeeds deterministically on
+  # hosts with no global git config; --allow-empty keeps a no-change refresh
+  # auditable instead of failing the install.
+  git -C "$CLAUDE_TEAM_DIR" \
+    -c user.name="paseo-claude-team installer" \
+    -c user.email="installer@paseo-claude-team.invalid" \
+    -c commit.gpgsign=false \
+    commit --quiet --allow-empty -m "$COMMIT_MESSAGE"
+  echo "[paseo-claude-team] deployed-config commit: $COMMIT_MESSAGE"
+else
+  echo "[paseo-claude-team] WARNING: git not found — deployed config at $CLAUDE_TEAM_DIR is unversioned; routing changes are not revertable" >&2
+fi
 
 # OpenCodeReview is a global npm package. It is required only by the
 # independent-reviewer OCR workflow; --skip-ocr leaves it out and the wrapper
@@ -111,6 +151,12 @@ echo "Next steps:"
 echo "  1. Merge config/paseo.providers.claude.example.json into ~/.paseo/config.json,"
 echo "     replacing <HOME> with $HOME. Keep daemon.mcp.injectIntoAgents: true —"
 echo "     without it agents receive no Paseo orchestration tools."
+echo "     JSON has no comments, so note here: the per-role \"models\" arrays are"
+echo "     an owner-approved allowlist that intentionally REPLACES the runtime"
+echo "     catalog — after any provider update, inspect the catalog and smoke-test"
+echo "     before widening; never use additionalModels. The built-in \"claude\""
+echo "     provider is disabled so a role-less session cannot start by accident;"
+echo "     the three role providers extend it and keep working."
 echo "  2. Restart the Paseo daemon when NO agent is running: paseo daemon restart"
 echo "     (there is no reload; providers are read at startup)."
 echo "  3. Confirm the providers: paseo provider ls | grep claude-"

@@ -27,6 +27,9 @@ import {
 	gitAuthorityBlockReason,
 	isAgentBrowserMcpTarget,
 	leadCreateWorkspaceArgsBlockReason,
+	lifecycleLabelsBlockReason,
+	skillBlockReason,
+	updateAgentLabelsBlockReason,
 	matchesPaseoToolName,
 	peerGitAuthority,
 	policyWithAuthority,
@@ -226,6 +229,12 @@ function paseoMcpBlockReason(role: TeamRole, toolName: string, toolInput: unknow
 	if (role === "supervisor" && matchesPaseoToolName(target, ["create_agent"])) {
 		return supervisorCreateAgentArgsBlockReason(toolInput);
 	}
+	if (role === "lead" && matchesPaseoToolName(target, ["create_agent"])) {
+		return lifecycleLabelsBlockReason(toolInput);
+	}
+	if (matchesPaseoToolName(target, ["update_agent"])) {
+		return updateAgentLabelsBlockReason(toolInput);
+	}
 	if (role === "lead" && matchesPaseoToolName(target, ["create_workspace"])) {
 		return leadCreateWorkspaceArgsBlockReason(toolInput);
 	}
@@ -243,6 +252,14 @@ export function claudeToolBlockReason(call: ClaudeToolCall): string | null {
 
 	const peerMode = resolvePeerMode(brief);
 	const policy = policyWithAuthority(role, peerMode, brief);
+
+	// 0. Skill admission — a skill is a behavior package, not a read-only
+	//    builtin; loading one changes what the agent attempts next, so it must
+	//    not ride the read-only fallthrough at the bottom of this function.
+	if (toolName === "Skill") {
+		const input = (toolInput ?? {}) as Record<string, unknown>;
+		return skillBlockReason(role, input.skill ?? input.command, brief);
+	}
 
 	// 1. Native delegation is never allowed — Paseo is the only control plane.
 	if (CLAUDE_SUBAGENT_TOOLS.includes(toolName)) {

@@ -28,6 +28,19 @@ Then, by hand (the pack never writes your Paseo config):
 1. Merge `config/paseo.providers.claude.example.json` into `~/.paseo/config.json`,
    replacing `<HOME>` with your home directory. Keep
    `daemon.mcp.injectIntoAgents: true` — without it agents get no Paseo tools.
+   JSON has no comments, so two hardening choices in that file are documented
+   here instead:
+   - Each role provider pins an owner-approved `models` allowlist
+     (`[{"id", "label"}]`, the same shape Paseo custom providers use; ids
+     verified live against the running daemon 2026-08-31). The allowlist
+     intentionally **replaces** the runtime catalog: after any provider update,
+     inspect the runtime catalog (`paseo provider models claude-peer --json`)
+     and smoke-test before widening it. Never use `additionalModels` — it
+     appends to the catalog instead of replacing it.
+   - The built-in `claude` provider is disabled (`"claude": {"enabled": false}`)
+     so a role-less session cannot be started by accident. The three role
+     providers extend `claude` and keep working — this mirrors a verified
+     upstream pattern.
 2. `paseo daemon restart` **when no agent is running**. There is no reload;
    providers are read only at startup, and a restart kills running agents.
 3. `paseo provider ls` → `claude-supervisor`, `claude-lead`, `claude-peer`.
@@ -119,6 +132,62 @@ project's `paseo.json` as a `"type": "service"` script and Paseo supervises it
 and gives it a proxy hostname its built-in browser can open. See
 [`docs/governance-graph.md`](docs/governance-graph.md).
 
+## Labels and daily cleanup queue
+
+Paseo 0.6.1 has two distinct label surfaces. The colored labels in the
+workspace menu are workspace labels; its supported CLI/MCP currently cannot
+assign them, so use the UI for the small visual vocabulary `active`, `review`,
+`observe`, `blocked`, `keep`, and `cleanup`. Use at most one phase plus optional
+`keep`. There is deliberately no `done`: a completed workspace should leave the
+active surface, not become a permanent completion artifact.
+
+The Lead adds supported machine-readable agent labels to every new team
+session: `harness.owner`, `harness.run`, `harness.project`, `harness.role`,
+`harness.task`, and `harness.retention`. Remote creation has parity through
+`remote-paseo.mjs --labels key=value,...`. These labels make the daily observer
+ownership-scoped; it never guesses from a provider, title, branch, or age.
+
+**`harness.project` must equal the Paseo workspace `project` field** (the name
+shown by `paseo workspace ls`), because a project-scoped reconcile filters
+workspaces by that field AND appends `harness.project=<project>` to the managed
+label selectors — a mismatched value makes every owned agent read as *foreign*
+and the workspace refuse with `no_managed_agent_history`. Found live in E2E:
+that failure direction is safe (fail-closed) but silently makes the observer
+inert for the whole project.
+
+```bash
+node ~/.claude/paseo-team/scripts/watchdog.mjs \
+  '{"mode":"daily-reconcile","project":"paseo-harness","includeOrphans":true}'
+```
+
+That is the default installed path accepted by the Supervisor's exact-command
+allowlist. If `PASEO_TEAM_SCRIPTS_DIR` is customized, substitute its resolved
+absolute value; do not pass the literal variable name. A human working in this
+source checkout may use `node scripts/watchdog.mjs ...` instead.
+
+The report is deterministic JSON with schema `paseo.team-reconcile/v1` and
+always says `mutates: false`. A workspace enters its cleanup queue only when
+all managed agents are archived, no foreign agent/terminal/process is using
+the tree, Git has no tracked, untracked, or ignored local files, HEAD is
+remote-reachable and merged into the observed base, the path is Paseo-owned,
+and the grace period has elapsed. Any failed or
+unknown check means KEEP / `cannot_verify`; `idle` is never completion proof.
+For each accepted worktree candidate the report emits a separate local-branch
+review item bound to the same expected HEAD; it never proposes remote deletion.
+
+Run that exact command daily from the scheduler you already operate (or from a
+Paseo scheduled Supervisor). The pack does not create a schedule because time,
+timezone, project, and provider are host-local choices. It also does not invoke
+`workspace archive` unattended: Paseo 0.6.1 force-removes a managed worktree in
+that path, so the queue remains human-reviewed until Paseo exposes a no-force,
+expected-HEAD cleanup primitive. The report also surfaces
+`daemon.autoArchiveAfterMerge`; it does not treat that setting as closure proof
+because 0.6.1 permits unknown Git evidence and does not check an expected HEAD.
+Cleanup classification is version-pinned to 0.6.1; another or unreadable daemon
+version yields `cannot_verify` until its semantics are reviewed.
+On Windows the process/open-file probe is unavailable, so retirement remains
+`cannot_verify`; this is an intentional fail-closed limitation, not clearance.
+
 ## Model routing
 
 Five classes so the Lead routes by **task risk**, not by habit — a monitoring
@@ -155,7 +224,7 @@ Stated plainly, because each has bitten during testing:
 ## Development
 
 ```bash
-npm ci && npm run check      # 15 suites + tsc
+npm ci && npm run check      # 16 suites + tsc
 ```
 
 Node **22.18+** runs `.ts`/`.mts` directly via type stripping — required, since
@@ -165,7 +234,7 @@ the hook imports its policy as `./claude-policy.mts`.
 
 | Component | Version | Verified |
 |---|---|---|
-| Paseo CLI/daemon | 0.4.0 | 2026-08-21 |
+| Paseo CLI/daemon | 0.6.1 | 2026-08-30 |
 | Claude Code | 2.1.237 | 2026-08-21 |
 | Node | ≥ 22.18 | 2026-08-21 |
 | OpenCodeReview | ≥ 1.8.10 (pins 1.9.2) | optional, reviewer flow only |
