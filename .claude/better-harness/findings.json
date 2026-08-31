@@ -1,0 +1,186 @@
+{
+  "summary": {
+    "projectName": "paseo-claude-team",
+    "locale": "en",
+    "modelId": "agent-work-loop-v4",
+    "reportContractVersion": 25,
+    "overview": "Pack có tầng cơ chế dày và được kiểm chứng (suite 39 test, digest chính sách, cổng CI mới), nhưng chính vòng lặp làm việc của nó vô hình với bằng chứng phiên — mọi phiên nằm dưới khoá thư mục cha — và repo tự quản trị agent lại chưa cho agent một entrypoint máy-đọc-được ở phạm vi dự án.",
+    "dimensions": [
+      {
+        "id": "task-understanding",
+        "label": "Task Understanding",
+        "score": 62,
+        "summary": "Brief V3, protocol và runbook mô tả ranh giới rõ cho repo ĐƯỢC quản trị; nhưng agent sửa CHÍNH pack không có AGENTS.md/CLAUDE.md nào để đọc, và preflight của skill chủ lực tìm không thấy bề mặt rules.",
+        "findingRefs": [
+          "self-repo-agent-entrypoint"
+        ]
+      },
+      {
+        "id": "controlled-execution",
+        "label": "Controlled Execution",
+        "score": 60,
+        "summary": "Hook PreToolUse tồn tại và được cài ở phạm vi người dùng, nhưng ở phạm vi dự án provider resolve 0 hook/0 skill; các cổng thực thi dồn về CI trong khi chính ci.yml nằm ngoài chu vi digest.",
+        "findingRefs": [
+          "ci-outside-digest-perimeter",
+          "duplicated-governed-references"
+        ]
+      },
+      {
+        "id": "change-validation",
+        "label": "Change Validation",
+        "score": 72,
+        "summary": "Suite 39 test với killing-test theo từng fix và tuyến chạy tường minh (npm test); còn hai lỗ được chỉ đích danh: preflight.mjs không có test hành vi, và cổng report chỉ ràng buộc báo cáo tự khai Gate: v1.",
+        "findingRefs": [
+          "preflight-no-behavior-test",
+          "gate-marker-not-required-forward"
+        ]
+      },
+      {
+        "id": "reliable-delivery",
+        "label": "Reliable Delivery",
+        "score": 58,
+        "summary": "Installer được test bằng thực thi sandbox và deploy có versioning git; nhưng không có bằng chứng repo-side nào về chấp nhận trước-merge (lịch sử tuyến tính, branch protection chưa xác minh).",
+        "findingRefs": []
+      },
+      {
+        "id": "learning-capture",
+        "label": "Learning Capture",
+        "score": 40,
+        "summary": "Sổ tay, watchlist và digest EOD tồn tại và được nối dây; nhưng 0 Task Episode quan sát được trong cửa sổ — công việc thật của pack diễn ra dưới khoá phiên khác nên vòng học chưa từng nhìn thấy một episode nào của chính nó.",
+        "findingRefs": [
+          "session-evidence-boundary"
+        ]
+      }
+    ],
+    "aiAgentPractice": {
+      "inspectedSurfaces": [
+        "Skills",
+        "Hooks",
+        "Workflows"
+      ],
+      "coverageRows": [
+        {
+          "surface": "Skills",
+          "scopes": [
+            "Project"
+          ],
+          "count": 5,
+          "paths": [
+            "skills/paseo-team-lead/SKILL.md",
+            "skills/paseo-ultra-review/SKILL.md",
+            "skills/paseo-ocr-reviewer/SKILL.md",
+            "skills/paseo-premise-audit/SKILL.md",
+            "skills/repo-refresh/SKILL.md"
+          ]
+        },
+        {
+          "surface": "Hooks",
+          "scopes": [
+            "Project"
+          ],
+          "count": 1,
+          "paths": [
+            "extensions/claude-team-hook.mjs"
+          ]
+        },
+        {
+          "surface": "Workflows",
+          "scopes": [
+            "Project"
+          ],
+          "count": 1,
+          "paths": [
+            ".github/workflows/ci.yml"
+          ]
+        }
+      ]
+    },
+    "assignmentSummaries": []
+  },
+  "findings": [
+    {
+      "id": "session-evidence-boundary",
+      "title": "Công việc của chính pack vô hình với mọi phân tích phiên",
+      "severity": "Medium",
+      "reason": "Sự thật: quần thể phiên cho workspace này rỗng toàn phần (0 eligible, 0 loại trừ — rỗng TRƯỚC bước lọc) kèm cảnh báo missing-optional-root; đồng thời cửa sổ đóng băng ở 00:00Z ngày cuối nên hoạt động trong ngày bench bị loại theo thiết kế. Suy luận đã xác minh bởi lead: phiên làm việc thật được lưu dưới khoá của thư mục cha nơi Lead vận hành, không phải dưới repo được bench. Chủ sở hữu: ranh giới thu thập bằng chứng của quy trình bench trong runbook. Bất định: không xác định được có phiên nào ở khoá khác ngoài cửa sổ hay không.",
+      "dimensionRefs": [
+        "learning-capture"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\nThêm vào docs/daily-ops.md (mục EOD/bench) ranh giới bằng chứng phiên: bench phiên phải chạy với workspace là thư mục mang phiên (nơi Lead vận hành), và cửa sổ --until phải bao trọn ngày bench; ghi rõ giới hạn hiện tại là không một target đơn lẻ nào cho đồng thời lane phiên (thư mục cha) và lane git (repo con).\n\n## Validation\n\n- Chạy lại evidence-bundle với workspace mang phiên và until qua ngày bench\n- eligibleSessions > 0 hoặc lý do loại trừ cụ thể xuất hiện trong bộ đếm",
+      "expectedArtifact": "Runbook",
+      "expectedOutput": [
+        "Người bench tiếp theo biết chính xác chạy bundle ở đâu và với cửa sổ nào để vòng học nhìn thấy episode của chính pack."
+      ]
+    },
+    {
+      "id": "self-repo-agent-entrypoint",
+      "title": "Repo quản trị agent nhưng không cho agent sửa chính nó một entrypoint máy-đọc-được",
+      "severity": "Medium",
+      "reason": "Sự thật: không có AGENTS.md/CLAUDE.md/.claude/ nào được track (xác minh ls-files bởi hai lane độc lập); provider resolve 0 rules/0 skills/0 hooks ở phạm vi dự án dù manifest quản trị 45 file; preflight của skills/paseo-team-lead trỏ tới AGENTS.md/WORKSPACE_PROTOCOL.md 'if present' và tìm không thấy gì. Suy luận: mỗi phiên sửa pack phải tự tái dựng ranh giới core/companion và bộ lệnh chuẩn từ README rời rạc. Chủ sở hữu: file chỉ dẫn gốc còn thiếu tại root. Bất định: mức độ README bù đắp được cho agent chưa đo.",
+      "dimensionRefs": [
+        "task-understanding"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\nViết AGENTS.md tại root pack: ranh giới core/companion (file nào phải sync với prompts/, skills/, docs/), bộ lệnh chuẩn (npm test, npm run typecheck, node scripts/policy-digest.mjs --check, node scripts/check-report-gates.mjs docs/ultrareview), quy tắc manifest-refresh-khi-đổi-governed-bytes, và con trỏ tới docs/daily-ops.md + docs/anti-patterns.md.\n\n## Validation\n\n- git ls-files liệt kê AGENTS.md\n- Inventory provider ở lần bench sau báo rules >= 1",
+      "expectedArtifact": "Rules",
+      "expectedOutput": [
+        "Agent mở repo lần đầu đọc được một trang duy nhất nói: đây là gì, lệnh nào là chuẩn, đổi gì thì phải đồng bộ gì."
+      ]
+    },
+    {
+      "id": "ci-outside-digest-perimeter",
+      "title": "ci.yml giữ các cổng cưỡng chế nhưng nằm ngoài chu vi digest chính sách",
+      "severity": "Medium",
+      "reason": "Sự thật: manifest.json không liệt kê .github/workflows/ci.yml trong khi file này chứa npm test, policy-digest --check và check-report-gates — các cổng pre-merge duy nhất; một thay đổi làm suy yếu cổng không làm --check đỏ. Suy luận: chu vi 'governed bytes' hụt đúng file định nghĩa việc cưỡng chế các byte đó. Chủ sở hữu: GOVERNED_FILES trong scripts/policy-digest.mjs. Bất định: không có.",
+      "dimensionRefs": [
+        "controlled-execution"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\nThêm .github/workflows/ci.yml vào GOVERNED_FILES của scripts/policy-digest.mjs, refresh manifest, và thêm assert trong test/policy-digest.test.mjs: sửa 1 byte ci.yml mà không refresh manifest thì --check phải fail.\n\n## Validation\n\n- Mutate 1 byte ci.yml -> node scripts/policy-digest.mjs --check exit khác 0\n- Suite policy-digest xanh sau restore",
+      "expectedArtifact": "Config",
+      "expectedOutput": [
+        "Suy yếu cổng CI trở thành thay đổi có dấu vết digest như mọi byte được quản trị khác."
+      ]
+    },
+    {
+      "id": "preflight-no-behavior-test",
+      "title": "preflight.mjs không có test hành vi — chính comment CI thừa nhận",
+      "severity": "Medium",
+      "reason": "Sự thật: không tồn tại test/preflight.test.mjs; ci.yml ghi nguyên văn rằng preflight không có importing test và chỉ được node --check bảo vệ; ngoài 2 probe nhờ trong test/policy-digest.test.mjs, bề mặt doctor/setup (~865 dòng) không có bằng chứng hành vi. Suy luận: regression logic (không phải lỗi parse) tới thẳng người dùng. Chủ sở hữu: file test đối ứng còn thiếu. Bất định: không có.",
+      "dimensionRefs": [
+        "change-validation"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\nTạo test/preflight.test.mjs kiểu plain-assert: spawnSync các route chính (--version in đủ name/version/policyDigest/fileCount; flag lạ -> envelope USAGE exit 2; thiếu giá trị flag -> missing_flag_value), mỗi assert kèm một mutate-and-fail đã ghi nhận.\n\n## Validation\n\n- node test/preflight.test.mjs xanh\n- Mutate một nhánh logic preflight -> test fail",
+      "expectedArtifact": "Test",
+      "expectedOutput": [
+        "Bề mặt readiness chính có bằng chứng hành vi qua process boundary thay vì chỉ syntax check."
+      ]
+    },
+    {
+      "id": "gate-marker-not-required-forward",
+      "title": "Cổng report chỉ ràng buộc báo cáo tự khai Gate: v1 — báo cáo mới viết tay có thể lặng lẽ đứng ngoài",
+      "severity": "Low",
+      "reason": "Sự thật: cả 3 báo cáo hiện có đều pre-gate (gated=0 pregate=3 failed=0), pass 'by declaration' đúng thiết kế cho di sản; template scaffold đã phát marker cho báo cáo mới. Suy luận: không cơ chế nào ép báo cáo SINH SAU ngày cắt phải mang marker — một báo cáo viết tay bỏ marker sẽ né cổng vĩnh viễn. Chủ sở hữu: scripts/check-report-gates.mjs. Bất định: chưa có episode nào như vậy xảy ra.",
+      "dimensionRefs": [
+        "change-validation"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\nThêm hằng ngày-cắt (2026-08-31) vào scripts/check-report-gates.mjs: file có tiền tố ngày sau ngày-cắt mà thiếu Gate: v1 bị đếm failed thay vì pregate; cập nhật test với fixture tên ngày mới không marker -> exit 1.\n\n## Validation\n\n- Fixture 26-09-01-x-round-1.md không marker -> exit 1\n- 3 báo cáo di sản vẫn pregate pass",
+      "expectedArtifact": "Test",
+      "expectedOutput": [
+        "Pre-gate là trạng thái di sản đóng, không phải lối thoát cho báo cáo tương lai."
+      ]
+    },
+    {
+      "id": "duplicated-governed-references",
+      "title": "Hai cặp file tham chiếu được quản trị nhân đôi byte-identical giữa hai skill và có thể phân kỳ im lặng",
+      "severity": "Low",
+      "reason": "Sự thật: manifest ghi cùng sha256 cho proof-debt-catalog.md và structural-antipatterns.md dưới cả paseo-premise-audit lẫn paseo-ultra-review; policy-digest --check so từng file nên chỉnh một phía + refresh hợp lệ là phân kỳ không dấu vết. Suy luận: hai skill review chủ lực có thể trôi khỏi nhau về doctrine. Chủ sở hữu: cặp file references + một parity assert còn thiếu. Bất định: chưa rõ nhân đôi là chủ đích portable hay tình cờ.",
+      "dimensionRefs": [
+        "controlled-execution"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\nThêm parity assert vào test/policy-digest.test.mjs: hai cặp file tham chiếu trùng tên giữa paseo-premise-audit và paseo-ultra-review phải byte-identical; kèm ghi chú trong docs về chủ đích vendor-per-skill.\n\n## Validation\n\n- Mutate một bản -> test fail\n- Suite xanh khi hai bản đồng nhất",
+      "expectedArtifact": "Test",
+      "expectedOutput": [
+        "Phân kỳ doctrine giữa hai skill review bị chặn bằng test thay vì dựa vào trí nhớ."
+      ]
+    }
+  ]
+}
