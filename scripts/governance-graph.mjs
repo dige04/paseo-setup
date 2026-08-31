@@ -925,16 +925,39 @@ export function assertTopology(graph) {
       "snapshot is partial (capped scan or failed inspects); ParentAgentId is only visible via inspect, so the absence of further delegation edges is not proof that no peer orchestrates"));
   }
 
-  // A5 — split by evidence class. The delegation leg STAYS exit-3: a
-  // ParentAgentId is a fact Paseo recorded, and a supervisor that spawned an
-  // agent did so whatever its provider is named. The posture leg is demoted for
-  // the same reason as A2 — it rests on the provider-suffix role vocabulary,
-  // and on a pack-enforced seat the mode is not authority at all.
+  // A5 — split by evidence class, and then the delegation leg splits again by
+  // LIVENESS, for the reason A1 already documents above.
+  //
+  // A ParentAgentId is a fact Paseo recorded, so a supervisor that spawned an
+  // agent did so whatever its provider is named — that does not change here.
+  // What changes is what exit 3 is FOR. It means "stop, the topology is wrong,
+  // fix it before dispatching". On a running supervisor that is actionable:
+  // cancel the children, retire the seat. On a CLOSED one there is no action at
+  // all — the edge is finished history, and no operation on today's topology can
+  // clear it. Left as a violation it makes the morning gate red forever, and a
+  // gate that can never be green stops being read inside a week. Measured
+  // 2026-09-01: one closed supervisor from 2026-08-22 held `--assert` at exit 3
+  // on every scope.
+  //
+  // Demoted, NOT dropped. The advisory keeps the same evidence and says plainly
+  // that the edge really happened — the F015 DECLARED-cohort posture: audited,
+  // not accused, ageing out as the agent is archived. Deleting it instead would
+  // launder history, which is the opposite failure.
+  //
+  // The live branch is load-bearing and has a positive control through the real
+  // CLI in test/governance-graph-assert.test.mjs. Without it this split is
+  // indistinguishable from switching A5's delegation leg off.
   for (const sup of agents.filter((a) => a.role === "supervisor")) {
     const targets = (delegateTargets.get(sup.id) ?? []).sort();
     if (targets.length > 0) {
-      violations.push(entry("A5", sup.id, [sup.id, ...targets],
-        `supervisor ${sup.id} parents delegation edge(s) to [${targets.join(", ")}]; the supervisor seat is observe-only and never orchestrates`));
+      if (running(sup)) {
+        violations.push(entry("A5", sup.id, [sup.id, ...targets],
+          `supervisor ${sup.id} parents delegation edge(s) to [${targets.join(", ")}]; the supervisor seat is observe-only and never orchestrates`));
+      } else {
+        cannotVerify.push(entry("A5", `${sup.id}:closed-delegation`, [sup.id, ...targets],
+          `ADVISORY (not a violation): supervisor ${sup.id} (status ${sup.status}) parents delegation edge(s) to [${targets.join(", ")}]. The edge is real and the seat did orchestrate — this is recorded, not excused. It is an advisory because the supervisor is not running, so no action on today's topology can clear it; blocking on finished history would hold this gate red permanently and teach its reader to ignore it. It ages out when the agent is archived`,
+          { advisory: true }));
+      }
     }
     if (sup.posture === "write") {
       cannotVerify.push(entry("A5", `${sup.id}:posture`, [sup.id],

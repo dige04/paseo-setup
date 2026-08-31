@@ -162,7 +162,7 @@ the built graph with the pure `assertTopology(graph)`, and prints
 | `A2-writer-is-acceptor` | a lead in a write-capable mode — the lead seat accepts, it does not write | no — advisory |
 | `A3-missing-role-record-in-governed-scope` | an agent in a governed scope carrying no `harness.role` record (the **residue clause**) | yes if created after the schema epoch · advisory before it |
 | `A4-peer-orchestrates` | a peer that parents any `delegates` edge | yes |
-| `A5-supervisor-not-observe-only` | a supervisor that parents `delegates` edges (fact) / holds a write-capable mode (posture) | delegation yes · posture advisory |
+| `A5-supervisor-not-observe-only` | a supervisor that parents `delegates` edges (fact) / holds a write-capable mode (posture) | delegation yes **while the supervisor is running** · closed-delegation advisory · posture advisory |
 | `A6-count-integrity` | `meta` presenting a capped, partial, or **empty** scan as a total | yes |
 | `A7-role-record-vs-mechanism` | `harness.role` disagreeing with the provider suffix; also a pack-enforced seat whose record answers to no swept value | yes on a pack-enforced seat with a contradictory swept record · `cannotVerify` for an unconfirmed record and for any non-pack-enforced seat |
 
@@ -254,6 +254,22 @@ assurance:
   permanently**. Running the standing Lead on `claude-lead` converts that
   coverage from 0% to every child the Lead spawns, which is a configuration
   choice, not a mechanism.
+- **A5's delegation leg is exit-3 only while the supervisor is running.** The
+  edge is still a recorded fact and is still reported for a closed seat — the
+  advisory says in as many words that the seat did orchestrate and that this is
+  "recorded, not excused". What changed is what exit 3 is *for*: it means "stop,
+  fix the topology before dispatching", and a finished agent's edge admits no
+  such action. Measured 2026-09-01, one closed supervisor from 2026-08-22 held
+  `--assert` at exit 3 on every scope; a gate that can never go green stops
+  being read, which costs more than the rule was worth. This mirrors A1's
+  LIVENESS clause and the F015 DECLARED cohort: audited, not accused, ageing out
+  on archive. **Do not "simplify" it into dropping the advisory** — silently
+  deleting the edge would launder history, the opposite failure. The live branch
+  has a real-CLI positive control (running supervisor + one peer → exactly one
+  A5 violation, exit 3) paired with its negative half (same fixture, supervisor
+  closed → exit 0 *and* the advisory still present). Without both, the split is
+  indistinguishable from switching the leg off.
+
 - **A2 and A5-posture stay advisories**, and F015 is no longer the reason.
   They rest on `Mode`, which is not authority on a pack-enforced seat in either
   direction; on an unenforced lead the mode does mean something, but "the lead

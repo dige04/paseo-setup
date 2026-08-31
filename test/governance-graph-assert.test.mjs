@@ -748,6 +748,41 @@ assert.ok(Number.isFinite(SCHEMA_EPOCH_MS));
   assert.match(a5[0].evidence, /observe-only and never orchestrates/);
 }
 
+// A CLOSED supervisor's delegation edge is finished history. It stays reported,
+// with the same evidence, but it does not hold the gate red: exit 3 means "fix
+// the topology before dispatching", and there is no operation on today's
+// topology that clears an edge a dead agent created. Measured 2026-09-01: one
+// closed supervisor from 2026-08-22 held --assert at exit 3 on every scope, and
+// a gate that can never go green stops being read.
+for (const status of ["closed", "idle"]) {
+  const { violations, cannotVerify } = assertTopology(graphOf([
+    agent("sup", "supervisor", { mode: "plan", status }),
+    agent("peer-1", "peer", { mode: "plan", parentAgentId: "sup" }),
+  ]));
+  assert.deepEqual(byRule(violations, "A5"), [],
+    `a ${status} supervisor's delegation edge is not actionable and must not be a violation`);
+  const cv = byRule(cannotVerify, "A5").filter((e) => e.id.endsWith(":closed-delegation"));
+  assert.equal(cv.length, 1, `the edge must still be REPORTED for a ${status} supervisor`);
+  assert.equal(cv[0].advisory, true);
+  assert.deepEqual(cv[0].agents, ["peer-1", "sup"]);
+  // Demoted, not laundered: the advisory must still say the thing happened.
+  assert.match(cv[0].evidence, /parents delegation edge/);
+  assert.match(cv[0].evidence, /recorded, not excused/);
+  assert.match(cv[0].evidence, new RegExp(`status ${status}`));
+}
+
+// The discrimination itself: same two agents, only the supervisor's status
+// differs, and the verdict flips. Without this the split above is
+// indistinguishable from switching A5's delegation leg off.
+{
+  const build = (status) => assertTopology(graphOf([
+    agent("sup", "supervisor", { mode: "plan", status }),
+    agent("peer-1", "peer", { mode: "plan", parentAgentId: "sup" }),
+  ]));
+  assert.equal(byRule(build("running").violations, "A5").length, 1, "live supervisor: violation");
+  assert.equal(byRule(build("closed").violations, "A5").length, 0, "closed supervisor: advisory");
+}
+
 {
   const { violations, cannotVerify } = assertTopology(graphOf([agent("sup", "supervisor", { mode: "acceptEdits" })]));
   assert.deepEqual(byRule(violations, "A5"), [], "the posture leg is advisory; the delegation leg is not");
@@ -1326,6 +1361,92 @@ if (argv[0] === "ls") {
   assert.match(result.stdout, /3 {2}violations found/);
   assert.match(result.stdout, /cannotVerify/);
   assert.match(result.stdout, /advisor/, "the help text admits which invariants are demoted");
+}
+
+// ---------------------------------------------------------------------------
+// KILLING TEST — A5's delegation leg, through the REAL CLI, both halves.
+//
+// The unit tests above prove assertTopology() discriminates. They cannot prove
+// the CLI still exits 3, and that is exactly what the liveness split put at
+// risk: demoting the closed case is one edit away from demoting the live one,
+// and every unit test would stay green while the morning gate went quiet.
+//
+// The negative half carries equal weight. It is the measured production case —
+// a closed supervisor whose finished delegation edge held --assert at exit 3 on
+// every scope — and it must exit 0 while still REPORTING the edge.
+// ---------------------------------------------------------------------------
+{
+  const dir = realpathSync(tmp("gg-a5-"));
+  const scope = join(dir, "scope");
+  mkdirSync(scope);
+
+  // `supStatus` is the only difference between the two halves.
+  const fakeFor = (name, supStatus) => {
+    const path = join(dir, name);
+    writeFileSync(path, `#!/usr/bin/env node
+// Fake paseo for A5's delegation control. A supervisor that parents one peer.
+// Both seats are pack-enforced and pre-epoch so the run carries no A3 residue
+// and no A7 noise — the "exactly one violation" claim has to be about A5.
+const argv = process.argv.slice(2);
+const cwd = ${JSON.stringify(scope)};
+const AGENTS = [
+  { id: "SUP-1", shortId: "SUP-1", provider: "claude-supervisor/claude-opus-5", status: ${JSON.stringify(supStatus)}, cwd },
+  { id: "PEER-1", shortId: "PEER-1", provider: "claude-peer/claude-opus-5", status: "running", cwd },
+];
+const ROLE = { "SUP-1": "supervisor", "PEER-1": "peer" };
+if (argv[0] === "ls") {
+  const at = argv.indexOf("--label");
+  if (at === -1) { console.log(JSON.stringify(AGENTS)); }
+  else {
+    const want = String(argv[at + 1]).split("=")[1];
+    console.log(JSON.stringify(AGENTS.filter((a) => ROLE[a.id] === want)));
+  }
+} else if (argv[0] === "status") {
+  console.log(JSON.stringify({ localDaemon: "running", daemonVersion: "0.6.1" }));
+} else if (argv[0] === "inspect") {
+  const agent = AGENTS.find((a) => a.id === argv[1]);
+  console.log(JSON.stringify({
+    Id: agent.id,
+    Provider: agent.provider,
+    Status: agent.status,
+    Cwd: cwd,
+    Mode: "plan",
+    ParentAgentId: agent.id === "PEER-1" ? "SUP-1" : null,
+    CreatedAt: "2026-08-30T00:00:00.000Z",
+    AvailableModes: [{ id: "plan", label: "Plan Mode" }],
+  }));
+} else {
+  console.log("{}");
+}
+`);
+    return path;
+  };
+
+  const live = runCli(["--assert", "--cwd", scope], {
+    PASEO_TEAM_PASEO_EXEC: `node "${fakeFor("fake-a5-live.mjs", "running")}"`,
+  });
+  assert.equal(live.status, 3,
+    `a RUNNING supervisor that orchestrates must exit 3: ${live.stdout} ${live.stderr}`);
+  const liveReport = JSON.parse(live.stdout);
+  assert.equal(liveReport.ok, false);
+  assert.equal(liveReport.violations.length, 1,
+    `exactly one violation, nothing bundled: ${JSON.stringify(liveReport.violations, null, 2)}`);
+  assert.equal(liveReport.violations[0].rule, "A5-supervisor-not-observe-only");
+  assert.deepEqual(liveReport.violations[0].agents, ["PEER-1", "SUP-1"]);
+  assert.match(liveReport.violations[0].evidence, /observe-only and never orchestrates/);
+
+  const closed = runCli(["--assert", "--cwd", scope], {
+    PASEO_TEAM_PASEO_EXEC: `node "${fakeFor("fake-a5-closed.mjs", "closed")}"`,
+  });
+  assert.equal(closed.status, 0,
+    `a CLOSED supervisor's finished edge must not hold the gate red: ${closed.stdout} ${closed.stderr}`);
+  const closedReport = JSON.parse(closed.stdout);
+  assert.equal(closedReport.ok, true);
+  assert.equal(closedReport.violations.length, 0);
+  const demoted = closedReport.cannotVerify.filter(
+    (e) => e.advisory === true && e.id.endsWith(":closed-delegation"));
+  assert.equal(demoted.length, 1, "green must not mean silent — the edge is still reported");
+  assert.match(demoted[0].evidence, /recorded, not excused/);
 }
 
 console.log("governance-graph-assert tests passed");

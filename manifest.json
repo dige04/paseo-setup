@@ -1,7 +1,7 @@
 {
   "schema": "paseo.team-policy-digest/v1",
   "version": "0.1.0",
-  "policyDigest": "sha256:4f85c055e176673f69477fab4e33a0d652f4559c8d496938d906a8f44e8a3260",
+  "policyDigest": "sha256:1570039652592095eb84428312a68c53d93d8932173f6bc7f0d18661a6691c6f",
   "fileCount": 47,
   "files": {
     ".github/workflows/ci.yml": "sha256:5b813228638034fe89b139086053b5242c2dbf911b003341edfc655ea3ae275b",
@@ -16,7 +16,7 @@
     "prompts/supervisor.md": "sha256:e5c04507aa8b0294d67f5a802c1df2342a1dd4b4bc07c806be000bb256a1a776",
     "scripts/check-report-gates.mjs": "sha256:b6f438012d94b32e13a551d21ac42bcee785007336a31271fad4902aabb0e130",
     "scripts/eod-digest.mjs": "sha256:5a28158843488c32c13443f473e10bbd4edda9ea2c85b77af9006255619223d8",
-    "scripts/governance-graph.mjs": "sha256:01542c238a2a2a9547720586335196bcb258873732bf8acbd1aaac7304032f78",
+    "scripts/governance-graph.mjs": "sha256:d0d2ae1d1c178cd997e2e1a548e662926a5f43f284909fa4e46915c5f5f0f1b7",
     "scripts/install.ps1": "sha256:620b68bb3812b23a012fbe2795f3c5c554aa0420ed04131eeacce1e9194d1d41",
     "scripts/install.sh": "sha256:350147e04dbd8e5951d940515f4e3cd52d5c19501782e55a8758b32f09cd9373",
     "scripts/lib-common.mjs": "sha256:319e53ae3071f2aaa9bfc9b8d67aa777e5a43026e9cf5b92a200406a00dd766e",
