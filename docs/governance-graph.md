@@ -281,13 +281,14 @@ assurance:
   missing-record half has an owner with the evidence to judge it — `A3` decides
   it on the schema epoch and exits 3 after it.
 
-  **More queries do not close this.** The out-of-vocabulary set is open, and the
-  most principled bounded probe fails on the live data: querying the Layer-2
-  disposition vocabulary in the Layer-1 key returns **0** for all five values,
-  because the wrong values in the wild are informal short names (`scout`, not
-  `repository-scout`). The actual fix is the recorded upstream ask above — an
-  existence selector would make "carries this key at all" answerable in one
-  query, and the set-difference against the closed set would then be exact.
+  **More queries do not close this.** Any bounded probe list only enumerates
+  the wrong values someone already knows about: querying today's known
+  stragglers (`harness.role=scout`) does find them, and querying the formal
+  Layer-2 vocabulary finds nothing — but tomorrow's typo is a new value neither
+  list contains. Enumeration-by-guess is not detection over an open set. The
+  actual fix is the recorded upstream ask above — an existence selector would
+  make "carries this key at all" answerable in one query, and the
+  set-difference against the closed set would then be exact.
 - **`leadWrite` in the policy node is COLLECTOR-LOCAL.** It reports the
   environment of the process drawing the graph, not of any inspected lead, and
   every line that prints it says so. It is not, and must not become, a

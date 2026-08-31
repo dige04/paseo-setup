@@ -23,7 +23,10 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const GOVERNED = ["prompts", "extensions", "skills", "templates", "scripts"];
-const GOVERNED_FILES = ["docs/anti-patterns.md", "config/skill-admission.json"];
+// ci.yml carries the only pre-merge gates (tests, --check, report-gate), so a
+// change that weakens them must trip the digest like any governed byte
+// (bench cycle 1, finding ci-outside-digest-perimeter).
+const GOVERNED_FILES = ["docs/anti-patterns.md", "config/skill-admission.json", ".github/workflows/ci.yml"];
 const MANIFEST_PATH = join(ROOT, "manifest.json");
 
 function* walk(dir) {

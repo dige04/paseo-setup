@@ -417,19 +417,21 @@ assert.equal(normalizePaseoCwd("~notahome/x"), "~notahome/x", "only the ~ HOME f
       `${relative} spells the role vocabulary out; import HARNESS_ROLE_VALUES instead`);
   }
 
-  // THE ONE KNOWN EXCEPTION, pinned rather than banned. extensions/
-  // claude-team-hook.mjs keeps a private `ROLES` Set for PASEO_CLAUDE_ROLE
-  // validation. It already imports ./policy-core.mts at runtime, so deleting
-  // the copy is a one-line change — it was simply outside the scope that
-  // landed F015. Until then this asserts the copy is the SAME vocabulary, so
-  // the split cannot silently re-open while the file waits its turn.
+  // The former ONE KNOWN EXCEPTION is healed: claude-team-hook.mjs now
+  // imports HARNESS_ROLE_VALUES from the owner instead of keeping a literal
+  // copy. Assert the import form so the split cannot silently re-open.
   const hook = readFileSync(join(root, "extensions", "claude-team-hook.mjs"), "utf8");
-  const declared = hook.match(/const ROLES = new Set\(\[([^\]]*)\]\)/);
-  assert.ok(declared, "claude-team-hook.mjs must still declare ROLES in the pinned shape");
-  assert.deepEqual(
-    declared[1].split(",").map((token) => token.trim().replace(/^["'`]|["'`]$/g, "")).filter(Boolean).sort(),
-    [...HARNESS_ROLE_VALUES].sort(),
-    "claude-team-hook.mjs ROLES has drifted from the owner; import HARNESS_ROLE_VALUES from ./policy-core.mts",
+  assert.ok(
+    /import \{[^}]*HARNESS_ROLE_VALUES[^}]*\} from "\.\/policy-core\.mts"/.test(hook),
+    "claude-team-hook.mjs must import HARNESS_ROLE_VALUES from the owner",
+  );
+  assert.ok(
+    hook.includes("new Set(HARNESS_ROLE_VALUES)"),
+    "claude-team-hook.mjs ROLES must derive from the imported owner",
+  );
+  assert.ok(
+    !/const ROLES = new Set\(\[/.test(hook),
+    "claude-team-hook.mjs must not re-declare a literal ROLES copy",
   );
 }
 

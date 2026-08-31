@@ -28,10 +28,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { claudeToolBlockReason } from "./claude-policy.mts";
-import { parseTaskBrief, peerGitAuthority, resolvePeerMode } from "./policy-core.mts";
+import { HARNESS_ROLE_VALUES, parseTaskBrief, peerGitAuthority, resolvePeerMode } from "./policy-core.mts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ROLES = new Set(["supervisor", "lead", "peer"]);
+// Single vocabulary owner is policy-core (F015); no local copy to drift.
+const ROLES = new Set(HARNESS_ROLE_VALUES);
 
 function detectClaudeRole() {
 	const raw = process.env.PASEO_CLAUDE_ROLE?.trim().toLowerCase();

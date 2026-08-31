@@ -35,6 +35,29 @@ test("a one-byte edit to any governed file changes the digest", () => {
   }
 });
 
+test("ci.yml is a governed byte — weakening the CI gates must trip the digest", () => {
+  // Bench cycle 1 finding: ci.yml carried the only pre-merge gates while
+  // sitting OUTSIDE the digest perimeter, so a gate-weakening edit stayed
+  // invisible to --check. Now it is a governed file like any other.
+  assert.ok(
+    Object.keys(policyDigest(root).files).includes(".github/workflows/ci.yml"),
+    "the manifest must govern .github/workflows/ci.yml",
+  );
+  const scratch = mkdtempSync(join(tmpdir(), "digest-ci-"));
+  try {
+    for (const dir of ["prompts", "extensions", "skills", "templates", "scripts", ".github"]) {
+      cpSync(join(root, dir), join(scratch, dir), { recursive: true });
+    }
+    cpSync(join(root, "package.json"), join(scratch, "package.json"));
+    const before = policyDigest(scratch).policyDigest;
+    appendFileSync(join(scratch, ".github", "workflows", "ci.yml"), "\n# drift\n");
+    const after = policyDigest(scratch).policyDigest;
+    assert.notEqual(before, after, "a ci.yml edit without manifest refresh must be visible drift");
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
 test("policy-digest --check works through a symlinked invocation path", () => {
   // node resolves import.meta.url through symlinks while argv[1] stays
   // literal; the is-main guard must compare realpaths or a symlinked checkout
