@@ -642,12 +642,30 @@
       Thêm một dòng vào <code>~/.paseo/config.json</code>. Đây đúng là bước 1 của trình cài đặt,
       trước giờ chưa từng được merge trên máy này. Có backup, đổi lại được trong 10 giây.
     </p>
-    <p class="dl">Còn lại — cần anh làm, tôi cố ý không tự làm</p>
+    <p class="dl">Hướng dẫn của tôi đã sai — và lần restart chứng minh điều đó</p>
     <p>
-      <strong>Chưa restart daemon.</strong> Cấu hình provider chỉ được đọc lúc daemon khởi động,
-      nên thay đổi này chưa có hiệu lực. Restart sẽ giết agent đang chạy, nên đó là lúc anh chọn,
-      không phải tôi. Sau khi restart, kiểm một câu: <code>paseo provider ls | grep claude-</code> —
-      còn đủ ba dòng là xong; mất là restore backup.
+      Anh restart theo đúng lời tôi dặn. Sau restart, config bị ghi ngược thành <code>true</code>.
+      Diff bản backup với bản sau restart: <strong>thay đổi duy nhất trong cả file là dòng tôi vừa sửa,
+      bị lật ngược</strong>. Không ai sửa tay — daemon ghi đè.
+    </p>
+    <p>
+      Lý do: daemon giữ state provider trong bộ nhớ rồi <em>ghi ngược ra file</em>. Một sửa đổi mà
+      daemon đang chạy chưa đọc thì bị lần restart sau xoá — và nó vẫn báo thành công. Tức là đúng
+      cái thứ tự tôi dặn (“sửa bây giờ, restart sau”) là thứ tự làm mất thay đổi.
+    </p>
+    <p>
+      Đúng phải là: sửa file rồi <strong><code>paseo daemon reload</code> ngay</strong>. Đã đo lại:
+      sau reload thì config giữ nguyên và <code>claude</code> chuyển sang
+      <code>unavailable · Disabled</code>, trong khi cả ba provider vai vẫn
+      <code>available · Enabled</code>. Đã sửa lại hướng dẫn trong README và trình cài đặt.
+    </p>
+    <p class="dl">Nó mua được gì — và không mua được gì</p>
+    <p>
+      Nó tắt <strong>chỗ ngồi</strong>, không tắt agent đang chạy: Lead thường trực khởi động từ chỗ
+      cũ vẫn chạy bình thường. Nên D1 chỉ là <em>nửa</em> cơ chế — nó chặn phiên không-vai <em>mới</em>
+      khởi động, còn Lead thường trực thì vẫn phải được mở trên <code>claude-lead</code> một cách có
+      chủ đích. Không có cấu hình nào ép được việc đó; đó là kỷ luật lúc giao việc, mà graph
+      <em>phát hiện</em> được chứ không <em>ngăn</em> được.
     </p>
     <p>
       Hai điều tôi <strong>không</strong> làm: không gắn nhãn ngược cho 9 agent cũ (đúng theo

@@ -10,7 +10,10 @@
 #     policy-core.mts             shared rules
 #     settings.claude-team.json   generated, absolute hook paths
 #     prompts/  scripts/  state/
-#   ~/.claude/skills/paseo-team-lead, paseo-ocr-reviewer, paseo-ultra-review, paseo-premise-audit
+#
+# Skills are NOT installed here by default: they are per project
+# (<project>/.claude/skills), because ~/.claude/skills is offered to every
+# session on the host. See --project / --global-skills below, and docs/onboarding.md.
 #
 # It does NOT touch ~/.claude/settings.json: the hook wiring lives in its own
 # settings file that the Paseo provider passes with --settings, so a plain
@@ -295,9 +298,12 @@ echo "     catalog — after any provider update, inspect the catalog and smoke-
 echo "     before widening; never use additionalModels. The built-in \"claude\""
 echo "     provider is disabled so a role-less session cannot start by accident;"
 echo "     the three role providers extend it and keep working."
-echo "  2. Restart the Paseo daemon when NO agent is running: paseo daemon restart"
-echo "     A 'paseo daemon reload' exists on current builds, but providers are read at"
-echo "     startup — verify with 'paseo provider ls' before trusting a reload."
+echo "  2. Apply it with 'paseo daemon reload' IMMEDIATELY after the edit."
+echo "     Measured 2026-09-01: the daemon persists its in-memory provider state back to"
+echo "     config.json on restart, so an edit the running daemon never loaded is silently"
+echo "     clobbered by the next 'paseo daemon restart' — which then reports success."
+echo "     Verify: paseo provider ls | grep -E '^claude ' must read 'unavailable  Disabled'."
+echo "     'restart' kills running agents; use it only after a successful reload."
 echo "  3. Confirm the providers: paseo provider ls | grep claude-"
 echo ""
 echo "     The provider env must point at the directory this installer populated:"

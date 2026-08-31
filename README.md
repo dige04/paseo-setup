@@ -55,12 +55,21 @@ Then, by hand (the pack never writes your Paseo config):
      and smoke-test before widening it. Never use `additionalModels` — it
      appends to the catalog instead of replacing it.
    - The built-in `claude` provider is disabled (`"claude": {"enabled": false}`)
-     so a role-less session cannot be started by accident. The three role
-     providers extend `claude` and keep working — this mirrors a verified
-     upstream pattern.
-2. `paseo daemon restart` **when no agent is running** — a restart kills running
-   agents. Current builds expose `paseo daemon reload`, but providers are read at
-   startup; if you use it, confirm with `paseo provider ls` rather than assuming.
+     so a role-less session cannot be started by accident. Verified live on this
+     host 2026-09-01: with the base disabled, `paseo provider ls` reports
+     `claude  unavailable  Disabled` while `claude-supervisor`, `claude-lead` and
+     `claude-peer` all stay `available  Enabled`. Note this disables the SEAT, not
+     an already-running agent — an agent started on bare `claude` keeps running,
+     so start the standing Lead on `claude-lead` explicitly.
+2. **`paseo daemon reload` — and do it immediately after the edit.** Measured
+   2026-09-01: the daemon persists its IN-MEMORY provider state back to
+   `~/.paseo/config.json` across a restart, so a file edit the running daemon
+   never loaded is silently clobbered by the next `restart`. Editing and then
+   restarting later reverts your change and reports success. `reload` applies the
+   file and the change then survives. Confirm, do not assume:
+   `paseo provider ls | grep -E '^claude '` must read `unavailable  Disabled`.
+   Use `restart` only when you need a full daemon cycle, and only after a
+   successful `reload` — and note it kills running agents.
 3. `paseo provider ls` → `claude-supervisor`, `claude-lead`, `claude-peer`.
 4. `node scripts/preflight.mjs`
 

@@ -27,21 +27,57 @@ this host. The pack deliberately does not write that file, so this was an
 exception made on the owner's instruction; a backup sits at
 `~/.paseo/config.json.bak-before-lead-seat-20260831`.
 
-**Not done, on purpose.**
+**No backfill.** The F015 ruling put a schema epoch on `inspect.CreatedAt` with no
+backfill, and this decision does not reopen it. D1 fixes children created from
+here on; the 9 unlabelled agents stay unlabelled and stay visible as such.
 
-- **The daemon was not restarted.** Providers are read at startup, so the change
-  is inert until the owner restarts with no agent running. `paseo daemon reload`
-  exists on this build but is unverified for provider changes — check
-  `paseo provider ls` after, do not assume.
-- **No backfill.** The F015 ruling put a schema epoch on `inspect.CreatedAt` with
-  no backfill, and this decision does not reopen it. D1 fixes children created
-  from here on; the 9 unlabelled agents stay unlabelled and stay visible as such.
+### The instruction was wrong, and the restart proved it (2026-09-01)
 
-**What to verify after the restart.** `paseo provider ls | grep claude-` must
-still show all three role providers. They `extends: "claude"`, and the example
-config plus `test/installer-contract.test.mjs` both assert that they keep working
-with the base disabled — but that combination has never run on this host. If they
-disappear, restore the backup.
+The owner restarted the daemon as instructed. Afterwards:
+
+```
+config agents.providers.claude : {"enabled": true}     ← written back as TRUE
+paseo provider ls              : claude  available  Enabled
+```
+
+Diffing the pre-edit backup against the post-restart file: **the only change in
+the entire config was `claude.enabled: absent → true`.** The edit had not been
+reverted by hand or lost to a merge — the daemon wrote it.
+
+**Mechanism.** The daemon holds provider state in memory and persists that state
+back to `~/.paseo/config.json`. A file edit the running daemon never loaded is
+therefore clobbered by the next `restart`, which then reports success. The
+sequence recommended here — *edit now, restart later* — is exactly the sequence
+that loses the change. Re-measured immediately after:
+
+| step | `config.claude.enabled` | `paseo provider ls` |
+|---|---|---|
+| edit the file, daemon running | `false` | `available  Enabled` (not yet applied) |
+| `paseo daemon reload` | `false` (kept) | **`unavailable  Disabled`** |
+
+**Corrected instruction, now in `README.md` and `install.sh`:** edit the file and
+run **`paseo daemon reload` immediately**. `restart` only after a successful
+reload, and only when a full daemon cycle is actually needed.
+
+This also corrects a second claim the pack shipped: "there is no reload; providers
+are read only at startup." Reload exists on this build and is the *only* way the
+change survives.
+
+### Verified after the reload
+
+`claude` → `unavailable  Disabled`; `claude-supervisor`, `claude-lead`,
+`claude-peer` → all `available  Enabled`. The three role providers `extends` the
+disabled base and keep working, which the example config and
+`test/installer-contract.test.mjs` asserted but nothing had ever run on a host.
+Now measured.
+
+**What this does and does not buy.** It disables the **seat**, not a running
+agent: the standing Lead started on bare `claude` keeps running unaffected. So D1
+is only half a mechanism — it stops the next role-less session from *starting*,
+and the standing Lead must still be started on `claude-lead` explicitly. There is
+no config that forces that; it is a dispatch discipline the graph can detect
+(`enforcementClass` already separates `pack-enforced` from unenforced seats) but
+not prevent.
 
 **Residual.** ~20 idle agents currently sit on the bare `claude` provider. Whether
 they resume after the base is disabled is untested. If resuming one matters, do it
