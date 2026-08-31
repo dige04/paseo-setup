@@ -14,3 +14,7 @@ auth.json
 
 # Local-only notes, kept out of version control.
 docs/*.local.md
+
+# impeccable design-hook local state (cache is per-session; config is a
+# reviewable waiver list — keep the config, drop the cache)
+.impeccable/hook.cache.json
