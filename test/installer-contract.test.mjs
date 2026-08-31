@@ -1,7 +1,7 @@
 // Installer contract checks: installed support scripts must be usable from an
 // unrelated project cwd and must include remote-paseo dependencies.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -548,6 +548,66 @@ if (process.platform !== "win32") {
 		"the uninstall removes the pack's skills only, never a neighbour's",
 	);
 	assert.ok(existsSync(join(deploy, "scripts", "wake-tier.mjs")), "the runtime survives a skills uninstall");
+
+	// -----------------------------------------------------------------------
+	// onboard.sh — the one-command path. Its whole value is the TODO gate: it
+	// automates the copying and refuses to automate the thinking. A scaffolded
+	// protocol that installs anyway would be worse than no scaffold, because a
+	// generated contract nobody read still looks like a contract.
+	// -----------------------------------------------------------------------
+	const onboard = (proj, env2) =>
+		spawnSync("bash", [join(root, "scripts", "onboard.sh"), proj], {
+			env: { ...process.env, ...env2 },
+			encoding: "utf8",
+		});
+
+	const target = join(sandbox, "onboard-target");
+	mkdirSync(target, { recursive: true });
+	writeFileSync(join(target, "package.json"), JSON.stringify({ name: "t", scripts: { test: "vitest run" } }));
+	const onboardEnv = { HOME: home, CLAUDE_TEAM_DIR: deploy, CLAUDE_SKILLS_DIR: skills };
+
+	// First run: scaffolds, then STOPS on the decisions it cannot make.
+	const first = onboard(target, onboardEnv);
+	assert.equal(first.status, 1, `first run must refuse: ${first.stdout} ${first.stderr}`);
+	const protocol = join(target, ".orchestration", "WORKSPACE_PROTOCOL.md");
+	assert.ok(existsSync(protocol), "it must scaffold the protocol even while refusing");
+	assert.ok(!existsSync(join(target, ".claude", "skills")), "no skills while a TODO remains");
+	// What it could READ is filled in — otherwise the scaffold saves nobody anything.
+	const scaffolded = readFileSync(protocol, "utf8");
+	assert.match(scaffolded, /PROJECT_ID: onboard-target/);
+	assert.match(scaffolded, /FAST_TEST: npm test/, "the project's own test command must be read, not invented");
+	assert.match(first.stdout, /TODO line\(s\) left/);
+
+	// Decide the TODOs; now it completes.
+	writeFileSync(protocol, scaffolded.split("\n").filter((l) => !/TODO/.test(l)).join("\n"));
+	const second = onboard(target, onboardEnv);
+	assert.equal(second.status, 0, `second run must complete: ${second.stdout} ${second.stderr}`);
+	for (const skill of packSkills) {
+		assert.ok(existsSync(join(target, ".claude", "skills", skill, "SKILL.md")), `${skill} must reach the project`);
+	}
+	// It must not silently overwrite a protocol somebody edited.
+	assert.doesNotMatch(readFileSync(protocol, "utf8"), /TODO/, "a re-run must not restore the scaffold's TODOs");
+
+	// A STALE deploy must block onboarding: a project onboarded onto last week's
+	// policy inherits rules nobody in this checkout reviewed, silently.
+	{
+		const staleDeploy = mkdtempSync(join(tmpdir(), "stale-deploy-"));
+		for (const f of ["claude-team-hook.mjs", "claude-policy.mts", "policy-core.mts"]) {
+			writeFileSync(join(staleDeploy, f), "// stub\n");
+		}
+		writeFileSync(join(staleDeploy, "manifest.json"), JSON.stringify({ policyDigest: "sha256:" + "0".repeat(64) }));
+		const stale = onboard(target, { ...onboardEnv, CLAUDE_TEAM_DIR: staleDeploy });
+		assert.equal(stale.status, 1, "a drifted runtime must block onboarding");
+		assert.match(stale.stderr, /deployed policy differs/);
+	}
+
+	// No runtime at all is a different, equally blocking, error.
+	{
+		const noDeploy = mkdtempSync(join(tmpdir(), "no-deploy-"));
+		const missing = onboard(target, { ...onboardEnv, CLAUDE_TEAM_DIR: noDeploy });
+		assert.equal(missing.status, 1);
+		assert.match(missing.stderr, /no runtime at/);
+	}
 }
 
 console.log("installer contract tests passed");

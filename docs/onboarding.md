@@ -35,6 +35,24 @@ those, plain Claude Code is better and the pack adds nothing but friction.
 There is no penalty for deciding later. Onboarding is two commands and reverses
 with `rm -rf <project>/.claude/skills`.
 
+## The one-command path
+
+```bash
+./scripts/onboard.sh <project-path>
+```
+
+Reads what it can (project id, branch, remote, test commands), scaffolds
+`<project>/.orchestration/WORKSPACE_PROTOCOL.md`, installs the skills into that
+project only, prints the verification steps. Refuses if the host runtime is
+missing **or drifted**, and refuses while any `TODO` remains in the protocol.
+
+It automates the copying, not the thinking. Expect to decide two things:
+`PROJECT_CRITICALITY`, and what is expensive to *undo* in this specific repo.
+Safe to re-run; an existing protocol is never overwritten.
+
+The manual path below is the same steps, spelled out — useful when you want to
+know what the command did, or when scaffolding is not wanted.
+
 ## Onboarding, step by step
 
 **Once per host.** Skip if `~/.claude/paseo-team/` already exists.

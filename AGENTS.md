@@ -18,9 +18,9 @@ node scripts/eod-digest.mjs --workspace .         # deterministic daily digest
 node scripts/wake-tier.mjs                        # hung-agent scan; exit 3 = somebody must act
 ```
 
-Skills are installed **per project**, never globally:
-`scripts/install.sh --skills-only --project <path>` (requires that project's
-`WORKSPACE_PROTOCOL.md`). See `docs/onboarding.md`.
+Skills are installed **per project**, never globally — one command:
+`scripts/onboard.sh <path>` (scaffolds the protocol, refuses while a `TODO`
+remains or the deployed runtime has drifted). See `docs/onboarding.md`.
 
 ## The one rule that catches everyone
 

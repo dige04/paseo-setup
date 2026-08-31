@@ -18,29 +18,63 @@ extensions/policy-core.mts     runtime-agnostic rules — roles, tool tables,
 
 ## Quickstart
 
-```bash
-git clone <this repo> && cd paseo-claude-team
-./scripts/install.sh                 # runtime + hook. Add --skip-ocr to skip the global OCR package.
-```
-
-That installs the **runtime** (host-wide, and necessarily so — the provider env
-pins absolute paths). It installs **no skills**: those are per project, because a
-skill in `~/.claude/skills` is offered to every session on the host and most
-projects should not run SLP at all. Onboard the ones that should:
+Two installs, and they are different in kind. **The runtime is host-wide** — the
+Paseo provider passes it by absolute path, so it cannot be per-project. **The
+skills are per project**, because `~/.claude/skills` is offered to every session
+on the machine and most projects should stay plain Claude Code.
 
 ```bash
-mkdir -p <project>/.orchestration
-cp templates/WORKSPACE_PROTOCOL.example.md <project>/.orchestration/WORKSPACE_PROTOCOL.md
-$EDITOR <project>/.orchestration/WORKSPACE_PROTOCOL.md   # the contract — this is the real step
-./scripts/install.sh --skills-only --project <project>
+git clone https://github.com/dige04/paseo-setup.git && cd paseo-setup
+npm test                             # 42/42, no npm install needed — zero runtime deps
+./scripts/install.sh                 # once per host. --skip-ocr to skip the OCR npm package
 ```
 
-The install refuses without that protocol file: skills with no project contract
-give an agent a workflow and nothing to run it against. `docs/onboarding.md`
-covers the full split, when *not* to onboard, and whether to commit
-`.claude/skills/` (yes, if Peers will run in Paseo worktrees).
+Then merge `config/paseo.providers.claude.example.json` into `~/.paseo/config.json`
+(replacing `<HOME>`), run **`paseo daemon reload`**, and confirm
+`paseo provider ls | grep claude-` shows the three role providers. Details and the
+two hardening choices in that file are below under *Provider config*.
 
-Then, by hand (the pack never writes your Paseo config):
+### Onboard a project — one command
+
+```bash
+./scripts/onboard.sh <project-path>
+```
+
+It reads what it can (project id, branch, remote, test commands), scaffolds
+`<project>/.orchestration/WORKSPACE_PROTOCOL.md`, installs the skills into that
+project only, and prints the verification steps.
+
+It **refuses while any `TODO` is left in the protocol**, and that refusal is the
+point. It automates the copying, not the thinking: the protocol is the contract
+the whole harness is judged against, and a generated one nobody read is worse than
+none because it looks like a contract. Expect two decisions —
+`PROJECT_CRITICALITY`, and what is expensive to *undo* in this specific repo.
+
+Re-running is safe; an existing protocol is never overwritten.
+
+### After every pull
+
+A pull does not update the deployed runtime, so agents keep enforcing whatever was
+deployed last:
+
+```bash
+./scripts/install.sh --skip-ocr && node scripts/preflight.mjs
+```
+
+`preflight` compares the deployed `policyDigest` against your checkout and **fails**
+on a mismatch. Measured on this pack's own host: the deploy had drifted seven
+scripts behind while every existing-file check passed clean.
+
+### Should this project use it at all?
+
+Most should not. Onboard when **two or more** hold: more than one agent writes to
+the repo in a day · work runs unattended long enough that a hung agent goes
+unnoticed · a defect reaching `main` costs more than the review round · you want
+the convergence gate. Otherwise plain Claude Code is better and this only adds
+ceremony. `docs/onboarding.md` covers the split; `docs/use.md` is the one-page
+daily reference.
+
+### Provider config
 
 1. Merge `config/paseo.providers.claude.example.json` into `~/.paseo/config.json`,
    replacing `<HOME>` with your home directory. Keep
@@ -78,6 +112,7 @@ Then, by hand (the pack never writes your Paseo config):
 settings file that the provider passes with `--settings`, so a plain `claude`
 session is untouched — and even if it were loaded globally, the hook exits 0
 immediately when `PASEO_CLAUDE_ROLE` is unset.
+
 
 ## Using it day to day
 
