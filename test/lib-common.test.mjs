@@ -10,6 +10,9 @@ import { pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 
 import {
+  HARNESS_DISPOSITION_VALUES,
+  HARNESS_ROLE_VALUES,
+  HARNESS_SCHEMA_VERSION,
   PASEO_CONVENTIONAL_ENTRIES,
   compareOcrVersions,
   findOnPath,
@@ -22,7 +25,11 @@ import {
   resolvePaseoExec,
   searchPathDirs,
   splitCommandLine,
+  validateLabelSelector,
 } from "../scripts/lib-common.mjs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const tmp = (prefix) => mkdtempSync(join(tmpdir(), prefix));
 const isWindows = process.platform === "win32";
@@ -300,6 +307,130 @@ assert.equal(normalizePaseoCwd("~notahome/x"), "~notahome/x", "only the ~ HOME f
   assert.equal(leadWriteEnabled(), false);
   if (previous === undefined) delete process.env.PASEO_TEAM_LEAD_WRITE;
   else process.env.PASEO_TEAM_LEAD_WRITE = previous;
+}
+
+// --- label selector guard ----------------------------------------------------
+//
+// KILLING TEST — the key-only FAIL-OPEN, measured on Paseo 0.6.1: `paseo ls
+// --label harness.role` (key, no value) returned the ENTIRE 200-agent fleet
+// instead of erroring or returning nothing. Any sweep that computes "who is in
+// no role set" from that answer concludes that everybody is labelled, and the
+// residue clause it feeds goes silently vacuous — a fail-open at the daemon
+// turning into a fail-open in the audit. The daemon offers no existence or
+// negation selector to cross-check against, so this validator is the only
+// thing that stops it, and it must THROW rather than sanitize: a repaired
+// selector would query for something the caller did not ask for.
+{
+  assert.equal(validateLabelSelector("harness.role=peer"), "harness.role=peer");
+  assert.equal(validateLabelSelector("harness.owner=paseo-claude-team"), "harness.owner=paseo-claude-team");
+  assert.equal(validateLabelSelector("k=v with spaces"), "k=v with spaces", "values are free text");
+
+  for (const bad of [
+    "harness.role",            // THE measured fail-open: key, no value
+    "harness.role=",           // empty value
+    "=peer",                   // no key
+    "harness role=peer",       // space in key
+    "harness.role=a=b",        // a second separator selects something else
+    "harness.role=peer\n--label", // newline smuggling a second selector
+    "",
+    undefined,
+    null,
+    42,
+    ["harness.role=peer"],
+    `k=${"v".repeat(300)}`,    // length ceiling
+  ]) {
+    assert.throws(() => validateLabelSelector(bad), /invalid label selector/,
+      `must throw: ${JSON.stringify(bad)}`);
+  }
+}
+
+// The validator is behaviour-identical to the private copy in
+// reconcile-observer.mjs, which is the pattern it inherits. That file was out
+// of scope to edit when this moved here, so the two are pinned against each
+// other through the reconciler's own public option validator rather than left
+// to drift into two different ideas of a valid selector.
+{
+  const { normalizeReconcileOptions } = await import("../scripts/reconcile-observer.mjs");
+  const accepts = (label) => {
+    try { normalizeReconcileOptions({ managedLabels: [label] }); return true; } catch { return false; }
+  };
+  for (const label of ["harness.owner=paseo-claude-team", "k=v with spaces", "harness.role", "=peer", "harness.role=a=b", ""]) {
+    let mine = true;
+    try { validateLabelSelector(label); } catch { mine = false; }
+    assert.equal(mine, accepts(label), `selector verdicts must agree on ${JSON.stringify(label)}`);
+  }
+}
+
+// --- closed label vocabularies -----------------------------------------------
+//
+// KILLING TEST — ONE VOCABULARY OWNER (F015). extensions/policy-core.mts owns
+// both closed sets; this module holds the only runtime mirror, because the
+// installer puts policy-core.mts at $CLAUDE_TEAM_DIR/ and support scripts at
+// $CLAUDE_TEAM_DIR/scripts/, so no relative specifier reaches it from a .mjs
+// consumer in both the repo and the installed layout.
+//
+// The defect this closes is not hypothetical: remote-paseo.mjs and
+// policy-core.mts each kept their own literal Set of
+// {observer,writer,reviewer,lead,supervisor} while the fleet ran on
+// {peer,scout,architect}, so the reconciler and the graph keyed on different
+// words and NEITHER COULD DETECT THE OTHER LYING. Parity plus the no-third-copy
+// scan below is what keeps that from re-forming.
+{
+  const core = await import("../extensions/policy-core.mts");
+  assert.deepEqual([...HARNESS_ROLE_VALUES], [...core.HARNESS_ROLE_VALUES]);
+  assert.deepEqual([...HARNESS_DISPOSITION_VALUES], [...core.HARNESS_DISPOSITION_VALUES]);
+  assert.equal(HARNESS_SCHEMA_VERSION, core.HARNESS_SCHEMA_VERSION);
+  // Layer 1 is exactly TeamRole — the axis the provider config projects.
+  assert.deepEqual([...HARNESS_ROLE_VALUES].sort(), ["lead", "peer", "supervisor"]);
+  // Layer 2 is exactly the V3 brief DISPOSITION vocabulary.
+  const { WORKSPACE_DISPOSITIONS } = await import("../scripts/remote-paseo.mjs");
+  assert.deepEqual([...WORKSPACE_DISPOSITIONS], [...HARNESS_DISPOSITION_VALUES]);
+  assert.ok(Object.isFrozen(HARNESS_ROLE_VALUES) && Object.isFrozen(HARNESS_DISPOSITION_VALUES));
+}
+
+// NO SECOND LITERAL COPY. Owner and mirror are the only two files allowed to
+// spell either vocabulary out; everyone else imports. A third literal is how
+// the last split started, and it starts as a one-line convenience every time.
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const OWNERS = new Set(["extensions/policy-core.mts", "scripts/lib-common.mjs"]);
+  // The full literal, in either declaration order, with any quoting/whitespace.
+  const roleLiteral = /["'`]lead["'`]\s*,\s*["'`]peer["'`]|["'`]peer["'`][^;]{0,80}["'`]supervisor["'`]|["'`]supervisor["'`]\s*,\s*["'`]lead["'`]/;
+  const dispositionLiteral = /["'`]repository-scout["'`]/;
+  const files = [
+    ...["policy-core.mts", "claude-policy.mts"].map((f) => `extensions/${f}`),
+    ...["lib-common.mjs", "governance-graph.mjs", "remote-paseo.mjs", "reconcile-observer.mjs", "watchdog.mjs", "model-routing.mjs"]
+      .map((f) => `scripts/${f}`),
+  ];
+  // The scanned list is hand-maintained, so a rename would silently drop a file
+  // from coverage while the scan stayed green — the same silent-gap defect the
+  // scan exists to prevent, one level up.
+  for (const relative of [...files, ...OWNERS]) {
+    assert.ok(existsSync(join(root, relative)), `${relative} is scanned for vocabulary copies but does not exist`);
+  }
+  for (const relative of files) {
+    if (OWNERS.has(relative)) continue;
+    const body = readFileSync(join(root, relative), "utf8");
+    assert.ok(!dispositionLiteral.test(body),
+      `${relative} spells the disposition vocabulary out; import HARNESS_DISPOSITION_VALUES instead`);
+    assert.ok(!roleLiteral.test(body),
+      `${relative} spells the role vocabulary out; import HARNESS_ROLE_VALUES instead`);
+  }
+
+  // THE ONE KNOWN EXCEPTION, pinned rather than banned. extensions/
+  // claude-team-hook.mjs keeps a private `ROLES` Set for PASEO_CLAUDE_ROLE
+  // validation. It already imports ./policy-core.mts at runtime, so deleting
+  // the copy is a one-line change — it was simply outside the scope that
+  // landed F015. Until then this asserts the copy is the SAME vocabulary, so
+  // the split cannot silently re-open while the file waits its turn.
+  const hook = readFileSync(join(root, "extensions", "claude-team-hook.mjs"), "utf8");
+  const declared = hook.match(/const ROLES = new Set\(\[([^\]]*)\]\)/);
+  assert.ok(declared, "claude-team-hook.mjs must still declare ROLES in the pinned shape");
+  assert.deepEqual(
+    declared[1].split(",").map((token) => token.trim().replace(/^["'`]|["'`]$/g, "")).filter(Boolean).sort(),
+    [...HARNESS_ROLE_VALUES].sort(),
+    "claude-team-hook.mjs ROLES has drifted from the owner; import HARNESS_ROLE_VALUES from ./policy-core.mts",
+  );
 }
 
 // --- OCR version helpers -----------------------------------------------------

@@ -348,9 +348,38 @@ assert.match(
   "a Lead cannot create an unowned session that the daily reconciler cannot identify",
 );
 assert.equal(
-  denial(preToolUse("lead", "mcp__paseo__create_agent", { labels: { ...lifecycleLabels, "harness.role": "writer", "harness.task": "T-42" } }, "lead")),
+  denial(preToolUse("lead", "mcp__paseo__create_agent", { labels: { ...lifecycleLabels, "harness.role": "peer", "harness.task": "T-42" } }, "lead")),
   null,
 );
+
+// F015 two-layer taxonomy at the create-time gate. The invalid values are
+// derived from the CURRENT vocabulary: harness.role is the authority triple
+// and nothing else, and the value that must be refused hardest is a
+// DISPOSITION in the authority key — that is the exact shape the live fleet
+// carried (harness.role=scout) and the reason the two layers were split.
+{
+  const create = (labels) =>
+    denial(preToolUse("lead", "mcp__paseo__create_agent", { labels: { ...lifecycleLabels, ...labels } }, "lead"));
+  for (const role of ["supervisor", "lead", "peer"]) {
+    assert.equal(create({ "harness.role": role }), null, `${role} is an authority role`);
+  }
+  for (const refused of ["observer", "writer", "reviewer", "scout", "engineer", "independent-reviewer", "", "PEER"]) {
+    assert.match(create({ "harness.role": refused }) ?? "", /harness\.role.*must be one of supervisor, lead, peer/,
+      `harness.role=${JSON.stringify(refused)} must be refused`);
+  }
+  // Layer 2 is optional, validated when present, and never an authority source.
+  assert.equal(create({ "harness.disposition": "engineer" }), null);
+  assert.equal(create({ "harness.disposition": "independent-reviewer" }), null);
+  assert.match(create({ "harness.disposition": "engineeer" }) ?? "", /harness\.disposition.*must be one of/);
+  assert.match(create({ "harness.disposition": "peer" }) ?? "", /harness\.disposition.*must be one of/,
+    "an authority value in the method key is as wrong as the reverse");
+  // The schema marker is a POSITIVE marker: validated when present, never
+  // required. Requiring it would deny a Supervisor recovery driven from the
+  // prompts that predate F015 — and it is not the epoch test in any case.
+  assert.equal(create({ "harness.schema": "v2" }), null);
+  assert.match(create({ "harness.schema": "v1" }) ?? "", /harness\.schema.*must be "v2"/);
+  assert.equal(create({}), null, "an unmarked but otherwise valid label set still passes");
+}
 assert.equal(denial(preToolUse("lead", "mcp__paseo__list_providers", {}, "lead")), null);
 assert.equal(denial(preToolUse("lead", "Bash", { command: "git log" }, "lead")), null);
 assert.match(

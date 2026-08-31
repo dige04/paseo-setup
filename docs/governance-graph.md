@@ -53,16 +53,45 @@ never the raw string quietly promoted back into an identity. Agents scoped on
 an unresolvable spelling are counted in `meta.scan.cwdUnresolved` rather than
 dropped in silence.
 
-**Role comes from the provider name, and that is a known gap.**
-`paseo inspect --json` exposes no `Labels` field, so the suffix on the provider
-name is the only role source the graph has — and only the pack's own `claude-*`
-providers carry one. (`paseo ls --label k=v` *is* a working server-side filter,
-so a second source exists; which label carries a role is the taxonomy question
-F015 owns, and guessing here would make the graph confidently wrong.) An agent
-running under plain `claude`, `omp` or `codex` renders as `UNKNOWN`, dashed,
-with no `bounds` or `checkpoints` edge. `delegates` edges are still drawn for
-unknown agents when Paseo reports a real parent — that is a fact, not an
-inference.
+**Role comes from the `harness.role` label, with the provider suffix as a
+cross-check.** `paseo inspect --json` exposes no `Labels` field, so the label is
+read the only way the daemon offers: one `paseo ls --label harness.role=<value>`
+per value of a **closed** set, intersected by id — the shape
+`reconcile-observer.mjs` already proved on retention, at a fixed cost of three
+spawns regardless of fleet size. The set must be closed because the label
+channel has exact-match, AND across keys and last-wins, but **no existence
+query and no negation**: *"who carries no role?"* is only computable as the
+scoped population minus the union of the per-value results.
+
+A **key-only selector fails open** — measured on 0.6.1, `--label harness.role`
+returned all 200 agents — so every selector goes through
+`validateLabelSelector` and a malformed one **throws instead of querying**. A
+sweep that accepted the fail-open answer would conclude that everyone is
+labelled, which is the precise inverse of the fail-closed reading.
+
+The two sources are **not interchangeable**:
+
+| Provider | What the suffix is | Label that disagrees with it |
+|---|---|---|
+| `claude-supervisor` / `claude-lead` / `claude-peer` | a **mechanism** — it selects the provider config that sets `PASEO_CLAUDE_ROLE` and arms the hook | `A7` **violation**: the governance record disagrees with the mechanism |
+| anything else | hand-made **text** (`omp-peer` is a name somebody typed) | `A7` `cannotVerify` — two claims disagreeing proves nothing |
+
+A label on an unenforced seat is a **claim**, accepted for *inclusion in the
+audited population* and never as authority; a false claim fails safe by adding
+scrutiny. A seat with neither source renders as `UNKNOWN`, dashed, with no
+`bounds` or `checkpoints` edge. `delegates` edges are still drawn for unknown
+agents when Paseo reports a real parent — that is a fact, not an inference.
+
+**`harness.disposition` (Layer 2) is never consulted by an authority gate.** It
+records the METHOD — the V3 brief's `DISPOSITION` vocabulary — is
+**creation-time only, never authoritative, and never a second source for
+`SKILL_ADMISSION`**. Skill admission reads `DISPOSITION` from the *current* V3
+brief and from nothing else: a label is written once at create and cannot
+follow a seat across tasks, so admitting on it would hand the reviewer skill to
+a seat whose current brief is an engineering task. Both vocabularies have one
+owner, `extensions/policy-core.mts`; `scripts/lib-common.mjs` holds the single
+runtime mirror for `.mjs` consumers and `test/lib-common.test.mjs` fails the
+build on drift or on a third literal copy.
 
 **Mode is not authority, and mode ids collide.** What a mode grants depends on
 the provider that published it and on whether anything else bounds the seat:
@@ -129,12 +158,13 @@ the built graph with the pure `assertTopology(graph)`, and prints
 
 | Rule | Fires on | Exit 3? |
 |---|---|---|
-| `A1-one-writer-per-scope` | two **running**, **unenforced**, write-capable peers sharing one **canonical** cwd | yes (but see the vacuum below) |
-| `A2-writer-is-acceptor` | a lead in a write-capable mode — the lead seat accepts, it does not write | no — advisory until F015 |
-| `A3-unknown-role-in-governed-scope` | an agent with no role suffix active where role-providers run | no — advisory until F015 |
+| `A1-one-writer-per-scope` | two **running**, **unenforced**, write-capable peers sharing one **canonical** cwd | yes |
+| `A2-writer-is-acceptor` | a lead in a write-capable mode — the lead seat accepts, it does not write | no — advisory |
+| `A3-missing-role-record-in-governed-scope` | an agent in a governed scope carrying no `harness.role` record (the **residue clause**) | yes if created after the schema epoch · advisory before it |
 | `A4-peer-orchestrates` | a peer that parents any `delegates` edge | yes |
 | `A5-supervisor-not-observe-only` | a supervisor that parents `delegates` edges (fact) / holds a write-capable mode (posture) | delegation yes · posture advisory |
 | `A6-count-integrity` | `meta` presenting a capped, partial, or **empty** scan as a total | yes |
+| `A7-role-record-vs-mechanism` | `harness.role` disagreeing with the provider suffix; also a pack-enforced seat whose record answers to no swept value | yes on a pack-enforced seat with a contradictory swept record · `cannotVerify` for an unconfirmed record and for any non-pack-enforced seat |
 
 Exit codes: `0` — no violations (`cannotVerify` may be non-empty; it is
 reported, not a failure), `3` — violations found, `2` — usage or collection
@@ -169,25 +199,95 @@ call anything a violation:
 A partial snapshot also adds an A4 `cannotVerify` note, because `ParentAgentId`
 is only visible via `inspect` and absent edges are not proof.
 
-### What this gate cannot do yet
+### The schema epoch, and what this gate still cannot do
 
-Stated here because the alternative is a green exit that reads like assurance:
+`A3` is the **residue clause** and it is where F015's teeth are. Every agent in
+a governed canonical scope must carry a `harness.role` record; the ones that do
+not are the residue of the set-difference the sweep computes. It is the only
+check here that fires on an agent nobody labelled — which is exactly the
+population that evaded everything else: all nine offenders measured on
+2026-08-31 were children of an **unarmed creator**, so the create-time gate
+never saw them, and all nine omitted `harness.owner`, so the reconciler's
+cohort never saw them either. The graph scopes by canonical cwd and sees all
+nine.
 
-- **A1's true-positive branch is unreachable on any fleet this pack can
-  produce.** It needs a seat that is both `role=peer` and `unenforced` — but
-  role is read off the provider suffix that only the pack-enforced `claude-*`
-  providers carry. The intersection is empty until **F015** gives roles their
-  own source. Its positive control in
-  `test/governance-graph-assert.test.mjs` is therefore **synthetic**: a
-  hand-built `omp-peer` that no shipped config emits. It is the specification
-  A1 will be held to the day F015 lands — do not "simplify" the suppression
-  away, and do not read the branch's silence as evidence of a clean fleet.
-- **The unenforced fleet is invisible to A1 for the mirror-image reason.**
-  `omp`/`agy`/`codex` scouts carry no role suffix at all, so A1 never looks at
-  the very seats whose mode *is* authority. Same root, same fix (F015).
-- **A2/A3/A5-posture are advisories, not gates.** They rest on the provider
-  suffix vocabulary; `harness.role` (the enforced enum) and the provider
-  suffix are non-composable today, which is F015's subject.
+It is a **schema epoch, not a backfill**. `SCHEMA_EPOCH` is the recorded
+constant `2026-08-31T12:00:00Z`, compared against `inspect.CreatedAt` — the
+only absolute creation time the daemon publishes, since `ls` carries a relative
+`"7 hours ago"` string that no epoch can use. It sits after every agent alive
+when F015 landed and before any compliant creation:
+
+- **created after it, no record** → violation, exit 3;
+- **created before it, no record** → the **DECLARED cohort**: one advisory per
+  scope, never a violation. The taxonomy did not exist when those agents were
+  created, and relabelling 140 live agents from an unarmed session would
+  launder history through the hole being closed. They age out as they are
+  archived; there is no backfill;
+- **`harness.schema=v2`** ships as a *positive* marker and **must never become
+  the epoch test** — an agent created by a non-compliant caller carries no
+  marker at all, so absence would read as "pre-epoch" for precisely the
+  population the clause exists to catch.
+
+Three fail-closed guards suppress the clause entirely rather than let it
+accuse a whole scope: no sweep in the graph, a sweep that did not complete
+(`rolesKnown === false` — one failed query makes *everyone* look unlabelled),
+and an agent whose `inspect` never answered (one transient `Agent not found`
+was observed live).
+
+Still true, and stated because the alternative is a green exit that reads like
+assurance:
+
+- **A1's true-positive branch is now reachable and proven.** It needs a seat
+  that is both `role=peer` and `unenforced`; before F015 that intersection was
+  empty on every fleet the pack could produce, and its only control was a
+  hand-built `omp-peer` no shipped config emits. Roles now come from the sweep,
+  so a labelled `omp`/`agy`/`codex` seat lands in it. The load-bearing control
+  in `test/governance-graph-assert.test.mjs` drives two running labelled peers
+  through the **real CLI** to a real exit 3; the suffix-built fixture survives
+  only as a secondary control for the fallback path. Quiet is now a finding
+  about the fleet, not about the check — but do not "simplify" the three
+  suppression clauses on the strength of it.
+- **The create-time gate is seat-local forever.** It binds by CREATOR, so it
+  covers exactly the children of seats the pack armed. The unarmed-creator set
+  (a human window, a bare `claude`, an `omp` seat, the GUI, the CLI) is open
+  and always non-empty, so **detection owns the fleet-wide guarantee
+  permanently**. Running the standing Lead on `claude-lead` converts that
+  coverage from 0% to every child the Lead spawns, which is a configuration
+  choice, not a mechanism.
+- **A2 and A5-posture stay advisories**, and F015 is no longer the reason.
+  They rest on `Mode`, which is not authority on a pack-enforced seat in either
+  direction; on an unenforced lead the mode does mean something, but "the lead
+  seat accepts, it does not write" is doctrine about how *this pack's* leads
+  are run, not a fact about a seat somebody else labelled.
+- **The daemon cannot answer "who has no role?" directly.** There is no
+  existence selector and no negation, and a key-only selector fails open. The
+  set-difference over a closed vocabulary is a workaround; an upstream request
+  for existence/negation selectors and for rejecting key-only `--label` is
+  recorded.
+- **`A7` cannot tell an ABSENT record from an OUT-OF-VOCABULARY one**, and this
+  blind spot is occupied, not theoretical. Two `claude-peer` seats on this host
+  carry `harness.role=scout` (measured 2026-08-31: `--label harness.role=scout`
+  returns 8, two of them pack-enforced). The sweep asks only over the closed set
+  `{supervisor, lead, peer}`, so a seat with a *wrong* record answers no query
+  and arrives looking exactly like a seat with *no* record.
+
+  What the graph **can** prove is reported: a pack-enforced seat whose record
+  answers to no swept value gets an `A7` `cannotVerify` per scope — on those
+  providers the suffix *is* the mechanism, so an unconfirmed record is
+  paperwork that fails to describe a bound actually in force. What it **cannot**
+  do is call that a disagreement, because the population is a mixture: of the 12
+  such seats in this repo's scope, 2 carry a wrong value and 10 carry no label
+  at all, so a violation would be a false statement about ten of them. The
+  missing-record half has an owner with the evidence to judge it — `A3` decides
+  it on the schema epoch and exits 3 after it.
+
+  **More queries do not close this.** The out-of-vocabulary set is open, and the
+  most principled bounded probe fails on the live data: querying the Layer-2
+  disposition vocabulary in the Layer-1 key returns **0** for all five values,
+  because the wrong values in the wild are informal short names (`scout`, not
+  `repository-scout`). The actual fix is the recorded upstream ask above — an
+  existence selector would make "carries this key at all" answerable in one
+  query, and the set-difference against the closed set would then be exact.
 - **`leadWrite` in the policy node is COLLECTOR-LOCAL.** It reports the
   environment of the process drawing the graph, not of any inspected lead, and
   every line that prints it says so. It is not, and must not become, a

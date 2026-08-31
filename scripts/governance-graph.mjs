@@ -20,19 +20,34 @@
  *     ingest (lib-common resolveCanonicalCwds), never the string Paseo handed
  *     us. Raw spellings survive for display only.
  *
- * Role comes from the provider name alone, and that is a KNOWN GAP, not a
- * design: `inspect` exposes no Labels field, so the graph reads roles off the
- * provider suffix that only the pack's own claude-* providers carry. (A second
- * source does exist — `paseo ls --label k=v` filters server-side — but which
- * label carries a role is exactly the taxonomy question F015 owns, and wiring
- * a guess here would make the graph confidently wrong.) Anything unrecognized
- * renders as `unknown` with no delegation edge. In a governance view a
- * confident wrong edge is worse than a blank one.
+ * Role comes from the `harness.role` LABEL, swept server-side, with the
+ * provider suffix as a cross-check (F015). `inspect` exposes no Labels field,
+ * so the label is read the only way the daemon offers: one `ls --label
+ * harness.role=<v>` per value of a CLOSED set, intersected by id — the shape
+ * reconcile-observer.mjs already proved for retention. A closed set is not a
+ * style choice: the label channel has exact-match/AND/last-wins and NO
+ * existence or negation selector, so "who has no role?" is only answerable as
+ * scoped minus the union of the per-value results. A key-only selector FAILS
+ * OPEN (measured: `--label harness.role` returned all 200 agents), which is
+ * why every selector goes through validateLabelSelector and a malformed one
+ * throws instead of querying.
+ *
+ * The two sources are not interchangeable and A7 keeps them apart. On a
+ * pack-enforced claude-* seat the suffix is a MECHANISM (it selects the
+ * provider config that sets PASEO_CLAUDE_ROLE and arms the hook), so a label
+ * that disagrees with it is a violation: the governance record disagrees with
+ * the mechanism. On any other provider the suffix is hand-made TEXT, so
+ * agreement proves nothing and disagreement is only cannotVerify. A label on
+ * an unenforced seat is a CLAIM, accepted for inclusion in the audited
+ * population and never as authority — a false claim fails safe by adding
+ * scrutiny. Anything with neither source renders as `unknown` with no
+ * delegation edge: in a governance view a confident wrong edge is worse than
+ * a blank one.
  *
  *   node scripts/governance-graph.mjs                 # scope: cwd, to stdout
  *   node scripts/governance-graph.mjs --all --out g.json
  *   node scripts/governance-graph.mjs --serve 7788    # viewer + live JSON
- *   node scripts/governance-graph.mjs --assert        # invariants A1–A6, exit 3 on violation
+ *   node scripts/governance-graph.mjs --assert        # invariants A1–A7, exit 3 on violation
  */
 
 import { execFile } from "node:child_process";
@@ -41,11 +56,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  HARNESS_ROLE_VALUES,
   isEntrypoint,
   leadWriteEnabled,
   normalizePaseoCwd,
   resolveCanonicalCwds,
   resolvePaseoExec,
+  validateLabelSelector,
 } from "./lib-common.mjs";
 import { retryWithBackoff } from "./reliability.mjs";
 import { runPaseoJson } from "./watchdog.mjs";
@@ -77,11 +94,107 @@ export const DEFAULT_GLOBAL_DEADLINE_MS = 30_000;
 export const DEFAULT_INSPECT_CONCURRENCY = 6;
 export const DEFAULT_STALE_AFTER_MS = 5 * 60_000;
 
-const ROLE_SUFFIXES = [
-  ["supervisor", "supervisor"],
-  ["lead", "lead"],
-  ["peer", "peer"],
-];
+/**
+ * The base agent listing. EVERY label query is this argv plus one `--label`,
+ * because the sweep answers a set-difference question ("in scope and in no
+ * role set") and a difference between two differently-postured populations is
+ * arithmetic on two different fleets.
+ *
+ * Both call sites SPREAD this constant, so the two postures cannot drift apart
+ * by editing one of them — that is the point of the constant, not a comment
+ * asking anyone to remember. What it does not prevent is a call site that
+ * stops spreading it and hardcodes its own argv: give the base list `-a` alone
+ * and archived agents appear in the population but in no role result, landing
+ * as residue nobody can fix; give the label queries `-a` alone and archived
+ * agents acquire records the base list never asked about. Changing the posture
+ * of BOTH (here, once) is fine and is the supported way to do it.
+ * test/governance-graph.test.mjs pins the value and the derivation.
+ */
+export const BASE_LIST_ARGS = Object.freeze(["ls", "-g"]);
+
+/** The authority label. Its VALUES are closed — see lib-common HARNESS_ROLE_VALUES. */
+export const ROLE_LABEL_KEY = "harness.role";
+
+/**
+ * F015 SCHEMA EPOCH — the instant the two-layer taxonomy became mandatory.
+ *
+ * Recorded as an absolute constant and compared against `inspect.CreatedAt`,
+ * which is the only absolute creation time the daemon publishes (`ls` carries
+ * a relative "7 hours ago" string that cannot be compared to anything). It is
+ * chosen AFTER every agent that existed when F015 landed and BEFORE any
+ * compliant creation, so no pre-existing agent is ever judged by a rule that
+ * did not exist when it was created — and no new one escapes.
+ *
+ * `harness.schema=v2` is a POSITIVE marker only and must never become this
+ * test: an agent created by a non-compliant caller carries no marker at all,
+ * so absence would read as "pre-epoch" for exactly the population the residue
+ * clause exists to catch.
+ */
+export const SCHEMA_EPOCH = "2026-08-31T12:00:00Z";
+export const SCHEMA_EPOCH_MS = Date.parse(SCHEMA_EPOCH);
+
+/**
+ * Provider suffix → role. Derived from the one closed vocabulary rather than
+ * retyped: the suffix and the label are two projections of ONE axis (the
+ * provider config that carries a suffix is the config that sets
+ * PASEO_CLAUDE_ROLE), so a suffix this file recognized and the label vocabulary
+ * did not would be a role that can be claimed by a provider name and never
+ * recorded.
+ */
+const ROLE_SUFFIXES = HARNESS_ROLE_VALUES.map((role) => [role, role]);
+
+/**
+ * Sweep `harness.role` across its closed value set and return an id → role map.
+ *
+ * INHERITED SHAPE (reconcile-observer.mjs:463-499, which proved it on
+ * retention): one server-side query per value, membership by id, and a
+ * "did every query succeed?" gate. Cost is fixed at |values| spawns — three —
+ * regardless of fleet size, because the daemon does the filtering.
+ *
+ * FAIL-CLOSED, and the direction matters. `rolesKnown` is false unless EVERY
+ * query returned a list. A single failed query makes some agents look
+ * unlabeled, and "unlabeled" is exactly what the residue clause turns into a
+ * violation — so a transient CLI error would manufacture violations across a
+ * whole scope. When rolesKnown is false the caller must ignore this map
+ * entirely rather than use the part of it that arrived.
+ *
+ * An id appearing under two different values is a daemon inconsistency, not a
+ * tie to break: one key holds one value, so `last-wins` here would be picking
+ * a winner between two answers that cannot both be true. It downgrades the
+ * whole sweep instead.
+ */
+export async function sweepRoleLabels(paseoJson, budget, options = {}) {
+  const key = options.roleLabelKey ?? ROLE_LABEL_KEY;
+  const values = options.roleValues ?? HARNESS_ROLE_VALUES;
+  // Composed and validated BEFORE any query: a malformed key must never reach
+  // a daemon whose answer to it is the whole fleet.
+  const selectors = values.map((value) => [value, validateLabelSelector(`${key}=${value}`)]);
+
+  const byId = new Map();
+  const errors = [];
+  let rolesKnown = true;
+  for (const [value, selector] of selectors) {
+    try {
+      const rows = await paseoJson([...BASE_LIST_ARGS, "--label", selector], budget());
+      if (!Array.isArray(rows)) throw new Error("label query did not return a list");
+      for (const row of rows) {
+        const id = row?.id ?? row?.Id;
+        if (!id) continue;
+        const seen = byId.get(id);
+        if (seen !== undefined && seen !== value) {
+          rolesKnown = false;
+          errors.push(`${id} answered to both ${key}=${seen} and ${key}=${value}; one key holds one value, so the sweep is inconsistent`);
+          continue;
+        }
+        byId.set(id, value);
+      }
+    } catch (error) {
+      rolesKnown = false;
+      errors.push(`${selector}: ${String(error?.message ?? error)}`);
+    }
+  }
+  return { key, values: [...values], byId, rolesKnown, errors };
+}
 
 /**
  * Derive the governance role from the Paseo provider name, e.g. `claude-lead`
@@ -160,8 +273,14 @@ export function enforcementClass(provider) {
  * could not be resolved yields `canonicalCwd: null` PLUS the resolve error:
  * null is "cannot verify", never "somewhere else" and never the raw string
  * quietly promoted back into an identity.
+ *
+ * `roleLabels` is the sweep's id → role map, and it is the PRIMARY role
+ * source; the provider suffix is the fallback for a seat that carries no
+ * record, and `roleSource` says which one answered so no downstream check has
+ * to guess. Callers that did not sweep pass nothing and get exactly the
+ * pre-F015 behaviour — a graph built without a sweep never claims a record.
  */
-export function normalizeAgent(listed, detail, canonicalMap = null) {
+export function normalizeAgent(listed, detail, canonicalMap = null, roleLabels = null) {
   const d = detail ?? {};
   const provider = d.Provider ?? String(listed.provider ?? "").split("/")[0] ?? "";
   const model = d.Model ?? String(listed.provider ?? "").split("/").slice(1).join("/");
@@ -169,13 +288,22 @@ export function normalizeAgent(listed, detail, canonicalMap = null) {
   const canonicalEntry = cwd ? canonicalMap?.get(cwd) : undefined;
   const availableModes = Array.isArray(d.AvailableModes) ? d.AvailableModes : [];
   const mode = d.Mode ?? null;
+  const id = listed.id ?? d.Id;
+  const providerRole = roleFromProvider(provider);
+  const labelRole = roleLabels?.get(id) ?? null;
   return {
-    id: listed.id ?? d.Id,
+    id,
     shortId: listed.shortId ?? String(listed.id ?? d.Id ?? "").slice(0, 7),
     name: d.Name ?? listed.name ?? "",
     provider,
     model,
-    role: roleFromProvider(provider),
+    role: labelRole ?? providerRole,
+    labelRole,
+    providerRole,
+    roleSource: labelRole ? "label" : providerRole === "unknown" ? "none" : "provider",
+    // Absolute, from inspect: the only creation time that can be compared to
+    // the schema epoch. `ls` publishes a relative string and nothing else.
+    createdAt: d.CreatedAt ?? null,
     enforcement: enforcementClass(provider),
     status: String(d.Status ?? listed.status ?? "unknown").toLowerCase(),
     mode,
@@ -304,6 +432,12 @@ export function buildGraph(agents, { daemon = {}, generatedAt, scope } = {}) {
               ? leadDetail(agent)
               : `${agent.status}${agent.stale ? " · stale?" : ""} · ${agent.provider}${agent.model ? `/${agent.model}` : ""}`,
           role: agent.role,
+          // The two sources, kept apart on purpose: A7 compares them and the
+          // residue clause asks only whether a RECORD exists.
+          labelRole: agent.labelRole ?? null,
+          providerRole: agent.providerRole ?? roleFromProvider(agent.provider),
+          roleSource: agent.roleSource ?? (agent.labelRole ? "label" : agent.role === "unknown" ? "none" : "provider"),
+          createdAt: agent.createdAt ?? null,
           status: agent.status,
           provider: agent.provider,
           enforcement: agent.enforcement ?? enforcementClass(agent.provider),
@@ -412,10 +546,11 @@ export function buildGraph(agents, { daemon = {}, generatedAt, scope } = {}) {
 export const ASSERT_RULES = Object.freeze({
   A1: "one-writer-per-scope",
   A2: "writer-is-acceptor",
-  A3: "unknown-role-in-governed-scope",
+  A3: "missing-role-record-in-governed-scope",
   A4: "peer-orchestrates",
   A5: "supervisor-not-observe-only",
   A6: "count-integrity",
+  A7: "role-record-vs-mechanism",
 });
 
 /**
@@ -529,6 +664,10 @@ export function assertTopology(graph) {
     .map((n) => ({
       id: n.id,
       role: n.data?.role ?? "unknown",
+      labelRole: n.data?.labelRole ?? null,
+      providerRole: n.data?.providerRole ?? roleFromProvider(n.data?.provider),
+      roleSource: n.data?.roleSource ?? "provider",
+      createdAt: n.data?.createdAt ?? null,
       status: n.data?.status ?? "unknown",
       provider: n.data?.provider ?? "",
       enforcement: n.data?.enforcement ?? enforcementClass(n.data?.provider),
@@ -568,14 +707,19 @@ export function assertTopology(graph) {
   //              a V3 brief this graph cannot read, so `bypassPermissions`
   //              there is not evidence of a writer.
   //
-  // STATED VACUUM (do not "fix" this by loosening a clause): "role === peer AND
-  // unenforced" is EMPTY on every fleet the pack can produce today, because
-  // role is read off a provider suffix that only the pack-enforced claude-*
-  // providers carry. A1's true-positive branch is therefore unreachable in
-  // production until F015 gives roles their own source, and its positive
-  // control is SYNTHETIC — a hand-built `omp-peer` no shipped config emits.
-  // The same vacuum has a second half (U4): omp/agy/codex seats carry no role
-  // suffix at all, so A1 never even looks at the fleet that IS unenforced.
+  // VACUUM CLOSED (F015, 2026-08-31 — this comment replaces the STATED VACUUM
+  // that stood here). "role === peer AND unenforced" used to be empty on every
+  // fleet the pack could produce, because role was read off a provider suffix
+  // that only the pack-enforced claude-* providers carry: the true-positive
+  // branch was unreachable in production and its only control was a hand-built
+  // `omp-peer` no shipped config emits. Roles now come from the `harness.role`
+  // sweep, so an omp/agy/codex seat labelled `peer` lands in this set — the
+  // intersection is populated, the branch is reachable, and it is proven at the
+  // process boundary by the two-running-unenforced-peers control in
+  // test/governance-graph-assert.test.mjs (real CLI, real collection, exit 3).
+  // The suffix-built fixture survives as a SECONDARY control for the fallback
+  // path only. Do not loosen the three clauses above on the grounds that A1 is
+  // quiet: quiet is now a finding about the fleet, not about the check.
   // -------------------------------------------------------------------------
   const peers = agents.filter((a) => a.role === "peer");
   const noScope = peers.filter((a) => !a.cwd);
@@ -635,11 +779,14 @@ export function assertTopology(graph) {
   }
 
   // -------------------------------------------------------------------------
-  // A2 — DEMOTED TO ADVISORY until F015. The check needs to know that a seat is
-  // a lead, and "lead" here means nothing but a provider-name suffix (M3: the
-  // enforced role enum {observer,writer,reviewer,lead,supervisor} has zero live
-  // instances, while the live fleet carries {peer,scout,architect}). Failing a
-  // morning gate on a naming convention is how an exit code stops being read.
+  // A2 — STAYS ADVISORY, and F015 is no longer the reason. Role now has a
+  // record, but the thing A2 wants to conclude — "this lead is writing" —
+  // still rests on Mode, and on a pack-enforced seat Mode is not authority in
+  // either direction. On an unenforced lead the mode does mean something, yet
+  // "the lead seat accepts, it does not write" is a doctrine about how the
+  // pack's own leads are run, not a fact about a seat somebody else labelled.
+  // Failing a morning gate on either would teach an operator to stop reading
+  // exit 3, which costs more than the check is worth.
   // -------------------------------------------------------------------------
   const leadWrite = nodes.find((n) => n?.id === "run-policy")?.data?.policy?.leadWrite ?? "undeclared";
   for (const lead of agents.filter((a) => a.role === "lead")) {
@@ -648,7 +795,7 @@ export function assertTopology(graph) {
         `ADVISORY (not a violation): lead ${lead.id} holds write-capable mode "${lead.mode}"; the lead seat accepts, it does not write. ${
           lead.enforcement === "pack-enforced"
             ? "This seat is pack-enforced, so the mode is not its authority — the hook is"
-            : "Role here is a provider-name suffix, which F015 records as an unreliable source"
+            : `Role here is ${lead.roleSource === "label" ? "a harness.role record, which is a claim on an unenforced provider and never an authority grant" : "a provider-name suffix, which is hand-made text and carries no mechanism"}`
         }. leadWrite is ${leadWrite} in THIS collector's environment, which says nothing about the environment ${lead.id} runs in`,
         { advisory: true }));
     } else if (lead.posture !== "read-only") {
@@ -658,28 +805,104 @@ export function assertTopology(graph) {
   }
 
   // -------------------------------------------------------------------------
-  // A3 — DEMOTED TO ADVISORY until F015. "Unknown role" means only "no
-  // recognized suffix on the provider name". The documented scout fleet runs on
-  // omp/agy/codex providers that carry real, briefed roles the provider name
-  // cannot express, so every ultra-review round would trip this rule while
-  // behaving exactly as designed. What the check reports is a NAMING gap.
+  // A3 — THE RESIDUE CLAUSE. Every agent in a governed scope must carry a
+  // `harness.role` record; the ones that do not are the residue of the
+  // set-difference the sweep exists to compute (scoped MINUS the union of the
+  // per-value results), and after the schema epoch that residue is a violation.
+  //
+  // This is F015's actual teeth, and it is the only check here that can fire on
+  // an agent nobody labelled — which is precisely the population that evaded
+  // every other mechanism: all nine offenders measured on 2026-08-31 were
+  // children of an UNARMED creator, so the create-time gate never saw them, and
+  // all nine omitted `harness.owner`, so the reconciler's cohort never saw them
+  // either. The graph scopes by canonical cwd and sees all nine.
+  //
+  // A SCHEMA EPOCH, NOT A BACKFILL. An agent created before the taxonomy
+  // existed cannot be guilty of omitting it, and relabelling 140 live agents
+  // from an unarmed session would launder history through the very hole this
+  // closes. Pre-epoch agents are a DECLARED cohort: named once per scope, as an
+  // advisory, never as a violation.
+  //
+  // Three fail-closed guards, each of which would otherwise manufacture
+  // violations wholesale rather than miss them:
+  //   NO SWEEP    a graph built without a sweep knows nothing about labels.
+  //   SWEEP FAILED  every agent would look unlabelled. Suppress, don't accuse.
+  //   NO CreatedAt  one transient "Agent not found" was observed live; an agent
+  //                 whose inspect failed has no epoch side, so it has no verdict.
   // -------------------------------------------------------------------------
+  // MEMBERSHIP vs ATTRIBUTION, and they are deliberately different sets.
+  //
+  // A scope is GOVERNED when the pack operates in it at all, which a
+  // provider-derived role establishes just as well as a record — narrowing
+  // membership to record-carrying agents would let a post-epoch stray in a
+  // scope whose other seats happen to be unlabelled escape the clause entirely.
+  //
+  // But the agents NAMED as the governance a stray sits alongside must be
+  // record-carrying only. Sourcing that list from the effective role listed the
+  // same unlabelled agent as "role-declared" and inside the no-record cohort
+  // one sentence apart — a line that reads as self-refuting to the operator it
+  // is written for.
   const governedScopes = new Map();
+  const recordedByScope = new Map();
   for (const a of agents) {
     if (a.role === "unknown" || !a.canonicalCwd) continue;
     if (!governedScopes.has(a.canonicalCwd)) governedScopes.set(a.canonicalCwd, []);
     governedScopes.get(a.canonicalCwd).push(a.id);
+    if (a.roleSource !== "label") continue;
+    if (!recordedByScope.has(a.canonicalCwd)) recordedByScope.set(a.canonicalCwd, []);
+    recordedByScope.get(a.canonicalCwd).push(a.id);
   }
-  for (const u of agents.filter((a) => a.role === "unknown")) {
-    if (!u.cwd) {
-      cannotVerify.push(entry("A3", u.id, [u.id],
-        `agent ${u.id} declares no role and carries no cwd signal; whether it sits inside a governed scope cannot be determined`));
-    } else if (!u.canonicalCwd) {
-      cannotVerify.push(entry("A3", u.id, [u.id],
-        `agent ${u.id} declares no role and its cwd ${u.cwd} could not be canonicalized (${u.cwdError ?? "unresolved"}); scope membership cannot be determined`));
-    } else if (governedScopes.has(u.canonicalCwd)) {
-      cannotVerify.push(entry("A3", u.id, [u.id],
-        `ADVISORY (not a violation): agent ${u.id} (${u.provider || "no provider"}) has no role suffix on its provider but is active in governed scope ${u.canonicalCwd} alongside role-declared agents [${governedScopes.get(u.canonicalCwd).sort().join(", ")}]. Provider names are the only role source the graph has; a briefed scout on a non-claude provider looks identical to an ungoverned stray until F015`,
+  /** Who actually holds a record here — or an explicit statement that nobody does. */
+  const governedBy = (scope) => {
+    const recorded = recordedByScope.get(scope);
+    return recorded?.length
+      ? `alongside record-carrying agents [${[...recorded].sort().join(", ")}]`
+      : "in a scope whose governance is provider-derived only — no agent here carries a record";
+  };
+  const sweep = meta.roleSweep;
+  const sweepUsable = sweep !== null && typeof sweep === "object" && sweep.known === true;
+  const sweptValues = sweepUsable ? (sweep.values ?? []).join(", ") : "";
+  const unrecorded = agents.filter((a) => a.roleSource !== "label");
+  if (sweep === null || typeof sweep !== "object") {
+    if (unrecorded.length > 0) {
+      cannotVerify.push(entry("A3", "(no-role-sweep)", [],
+        `meta.roleSweep is absent, so no agent's ${ROLE_LABEL_KEY} record was read and the residue clause cannot run; ${unrecorded.length} agent(s) show a provider-derived or absent role only`));
+    }
+  } else if (sweep.known !== true) {
+    cannotVerify.push(entry("A3", "(sweep-failed)", [],
+      `the ${ROLE_LABEL_KEY} sweep did not complete (${(sweep.errors ?? []).join("; ") || "no reason recorded"}); with an incomplete sweep every agent looks unlabelled, so the residue clause is suppressed rather than allowed to accuse a whole scope, and roles fall back to the provider suffix`));
+  } else {
+    const declaredByScope = new Map();
+    for (const u of unrecorded) {
+      if (!u.cwd) {
+        cannotVerify.push(entry("A3", u.id, [u.id],
+          `agent ${u.id} answers to no ${ROLE_LABEL_KEY} value in {${sweptValues}} and carries no cwd signal; whether it sits inside a governed scope cannot be determined`));
+      } else if (!u.canonicalCwd) {
+        cannotVerify.push(entry("A3", u.id, [u.id],
+          `agent ${u.id} answers to no ${ROLE_LABEL_KEY} value in {${sweptValues}} and its cwd ${u.cwd} could not be canonicalized (${u.cwdError ?? "unresolved"}); scope membership cannot be determined`));
+      } else if (!governedScopes.has(u.canonicalCwd)) {
+        continue; // nobody governs that directory; not this gate's business
+      } else {
+        const createdMs = Date.parse(u.createdAt ?? "");
+        if (!Number.isFinite(createdMs)) {
+          cannotVerify.push(entry("A3", u.id, [u.id],
+            `agent ${u.id} answers to no ${ROLE_LABEL_KEY} value in {${sweptValues}} and has no readable CreatedAt (${u.createdAt ?? "absent — inspect did not answer"}); the schema epoch ${SCHEMA_EPOCH} cannot be applied to it`));
+        } else if (createdMs > SCHEMA_EPOCH_MS) {
+          violations.push(entry("A3", u.id, [u.id],
+            `agent ${u.id} (${u.provider || "no provider"}) was created ${u.createdAt}, after the F015 schema epoch ${SCHEMA_EPOCH}, and answers to no ${ROLE_LABEL_KEY} value in {${sweptValues}} while running in governed scope ${u.canonicalCwd}, ${governedBy(u.canonicalCwd)}; every agent created in a governed scope carries an authority record`));
+        } else {
+          if (!declaredByScope.has(u.canonicalCwd)) declaredByScope.set(u.canonicalCwd, []);
+          declaredByScope.get(u.canonicalCwd).push(u.id);
+        }
+      }
+    }
+    // One line per scope, not one per seat: a pre-epoch cohort is a property of
+    // the fleet's history, and repeating it per agent is the flood that teaches
+    // an operator to stop reading the output.
+    for (const scope of [...declaredByScope.keys()].sort()) {
+      const cohort = declaredByScope.get(scope).sort();
+      cannotVerify.push(entry("A3", `${scope}:pre-epoch`, cohort,
+        `ADVISORY (not a violation): ${cohort.length} agent(s) in governed scope ${scope}, ${governedBy(scope)}, answer to no ${ROLE_LABEL_KEY} value in {${sweptValues}} and were created before the F015 schema epoch ${SCHEMA_EPOCH} — the DECLARED cohort. They are audited, not accused: the taxonomy did not exist when they were created, and relabelling them now from an unarmed session would launder history. They age out as they are archived; no backfill is planned`,
         { advisory: true }));
     }
   }
@@ -718,7 +941,7 @@ export function assertTopology(graph) {
         `ADVISORY (not a violation): supervisor ${sup.id} holds write-capable mode "${sup.mode}"; the supervisor seat is observe-only. ${
           sup.enforcement === "pack-enforced"
             ? "This seat is pack-enforced, so the hook — not the mode — is what actually denies the write"
-            : "Role here is a provider-name suffix, which F015 records as an unreliable source"
+            : `Role here is ${sup.roleSource === "label" ? "a harness.role record, which is a claim on an unenforced provider and never an authority grant" : "a provider-name suffix, which is hand-made text and carries no mechanism"}`
         }`,
         { advisory: true }));
     } else if (sup.posture !== "read-only") {
@@ -769,6 +992,94 @@ export function assertTopology(graph) {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // A7 — the governance RECORD versus the MECHANISM, and the asymmetry between
+  // them is the whole rule.
+  //
+  // On a pack-enforced seat the provider suffix is not a name: `claude-peer`
+  // selects the provider config that sets PASEO_CLAUDE_ROLE, which is what arms
+  // the PreToolUse hook. So the suffix is the mechanism actually in force, and
+  // a `harness.role` label that disagrees with it means the record the fleet is
+  // audited by describes an agent that is not the one running. That is a fact
+  // the graph carries about two sources it can both read → exit 3.
+  //
+  // On any other provider the suffix is hand-made text (`omp-peer` is a name
+  // somebody typed) and the label is a claim. Two claims disagreeing is not
+  // evidence that either is false, and there is no third source to break the
+  // tie → cannotVerify. The failure this asymmetry prevents is calling an
+  // unenforced seat's naming choice a governance violation.
+  //
+  // NEVER "wrong authority": this rule reports a DISAGREEMENT. It does not know
+  // which side is right, and a message that implies it does would send someone
+  // to relabel the agent when the provider was the thing that was wrong.
+  // -------------------------------------------------------------------------
+  for (const a of agents) {
+    if (a.roleSource !== "label" || a.labelRole === null) continue;
+    if (a.providerRole === "unknown" || a.providerRole === a.labelRole) continue;
+    if (a.enforcement === "pack-enforced") {
+      violations.push(entry("A7", a.id, [a.id],
+        `agent ${a.id} records ${ROLE_LABEL_KEY}=${a.labelRole} but runs on pack-enforced provider ${a.provider}, which arms the hook as ${a.providerRole}; the governance record disagrees with the mechanism actually bounding this seat — one of the two is wrong and this check does not know which`));
+    } else {
+      cannotVerify.push(entry("A7", a.id, [a.id],
+        `agent ${a.id} records ${ROLE_LABEL_KEY}=${a.labelRole} while its provider ${a.provider} is suffixed ${a.providerRole}; on a ${a.enforcement} provider the suffix is hand-made text and not a mechanism, so the disagreement proves nothing about either side`));
+    }
+  }
+
+  // THE THIRD STATE, and it was structurally invisible before this: a
+  // pack-enforced seat whose record does not CONFIRM the mechanism.
+  //
+  // The loop above can only see a record that holds one of the swept values.
+  // A record holding anything else answers to no query, so the sweep reports
+  // the seat exactly as it reports a seat with no label at all — and A7 fell
+  // straight through, emitting nothing. Two live instances exist on this host
+  // right now (`claude-peer` seats carrying `harness.role=scout`, measured
+  // 2026-08-31): pack-enforced, contradicted by their own record, and silent.
+  //
+  // WHY THIS IS A cannotVerify AND NOT A VIOLATION. "The record disagrees with
+  // the mechanism" is a claim this check cannot make about this population,
+  // because the population is a MIXTURE: of the 12 pack-enforced seats in this
+  // repo's scope with no swept record, 2 carry a wrong value and 10 carry no
+  // label at all. Calling all 12 a disagreement would be a false statement
+  // about 10 of them — manufacturing, which the same rule that forbids
+  // unknown-is-a-pass forbids in this direction too. The missing-record case
+  // already has an owner with the evidence to judge it: A3 decides it on the
+  // schema epoch, and post-epoch it is an exit-3 violation there. What this
+  // entry adds is the fact A3 does not carry — that on THESE seats the suffix
+  // is a live mechanism, so an unconfirmed record is not merely a gap in the
+  // paperwork, it is paperwork that fails to describe a bound that is in force.
+  //
+  // The ambiguity is not laziness and it is not closable by asking harder: the
+  // channel has no existence selector and no negation, a key-only selector
+  // returns the whole fleet, and the out-of-vocabulary set is OPEN — probing
+  // the Layer-2 disposition vocabulary in this key returns 0 on this host,
+  // because the live wrong values are informal short names — scout, not the
+  // repository-scout the vocabulary actually holds. See docs/governance-graph.md.
+  // (Written without quoting the vocabulary token on purpose: the
+  // no-second-literal-copy scan in test/lib-common.test.mjs reads a quoted one
+  // as a re-introduced copy, and it is right to.)
+  //
+  // Gated on the same completed sweep as A3: with a failed or absent sweep
+  // every pack-enforced seat looks unconfirmed, and one timed-out query would
+  // print this line for the entire fleet.
+  if (sweepUsable) {
+    const unconfirmedByScope = new Map();
+    for (const a of agents) {
+      if (a.enforcement !== "pack-enforced" || a.roleSource === "label") continue;
+      // No suffix means no mechanism asserted, so there is nothing to confirm.
+      if (a.providerRole === "unknown") continue;
+      const key = a.canonicalCwd ?? (a.cwd ? `unresolved:${a.cwd}` : "(no-scope)");
+      if (!unconfirmedByScope.has(key)) unconfirmedByScope.set(key, []);
+      unconfirmedByScope.get(key).push(a);
+    }
+    // One line per scope, like A1's pack-enforced note: the blindness is a
+    // property of the scope's population, not news about each seat in it.
+    for (const scope of [...unconfirmedByScope.keys()].sort()) {
+      const seats = unconfirmedByScope.get(scope);
+      cannotVerify.push(entry("A7", `${scope}:unconfirmed`, seats.map((a) => a.id),
+        `${seats.length} pack-enforced seat(s) in scope ${scope} answer to no ${ROLE_LABEL_KEY} value in {${sweptValues}}, so their record does not confirm the mechanism that bounds them (${seats.map((a) => `${a.id}(${a.provider} arms the hook as ${a.providerRole})`).sort().join(", ")}). On these providers the suffix IS the mechanism, so the record ought to name the same role. Whether each seat is UNLABELLED or carries a value outside the closed set is not decidable here — the label channel has no existence selector and no negation, and a key-only selector returns the whole fleet — so this is reported as blindness rather than as a disagreement. The missing-record half is A3's verdict, and after the schema epoch A3 makes it an exit-3 violation`));
+    }
+  }
+
   const byIdOrder = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   violations.sort(byIdOrder);
   cannotVerify.sort(byIdOrder);
@@ -789,7 +1100,7 @@ export async function collectGraph(options = {}) {
   let listed = [];
   let daemon = { status: "unknown" };
   try {
-    listed = await retryWithBackoff(() => paseoJson(["ls", "-g"], budget()), {
+    listed = await retryWithBackoff(() => paseoJson([...BASE_LIST_ARGS], budget()), {
       maxAttempts,
       baseMs: options.baseMs ?? 100,
       jitter: 0,
@@ -813,6 +1124,12 @@ export async function collectGraph(options = {}) {
       error: String(error?.message ?? error),
     };
   }
+
+  // Role records, swept server-side: a fixed 3 spawns, and the ONLY way to read
+  // a label — inspect carries none. Not fatal: a failed sweep is reported as
+  // rolesKnown=false and the assert layer suppresses the residue clause rather
+  // than accusing a scope of an omission the query never proved.
+  const roleSweep = await sweepRoleLabels(paseoJson, budget, options);
 
   // Canonicalize at ingest, before anything is compared: `ls` spells this
   // machine's directories `~/x` and `inspect` spells the same ones
@@ -866,8 +1183,12 @@ export async function collectGraph(options = {}) {
     canonicalCwds.set(cwd, resolved);
   }
 
+  // An untrusted sweep is not consulted at all: using the part of a partial
+  // answer that happened to arrive is how "some agents look unlabelled"
+  // becomes "these agents are unlabelled".
+  const roleLabels = roleSweep.rolesKnown ? roleSweep.byId : null;
   const agents = capped.map((listedAgent, i) =>
-    markStale(normalizeAgent(listedAgent, details[i], canonicalCwds), { staleAfterMs: options.staleAfterMs }),
+    markStale(normalizeAgent(listedAgent, details[i], canonicalCwds, roleLabels), { staleAfterMs: options.staleAfterMs }),
   );
   const graph = buildGraph(agents, {
     daemon,
@@ -889,6 +1210,14 @@ export async function collectGraph(options = {}) {
     cwdUnresolved: unresolvedCwds.length,
     ...(unresolvedCwds.length > 0 ? { cwdUnresolvedDetail: unresolvedCwds.slice(0, 20) } : {}),
   };
+  graph.meta.roleSweep = {
+    key: roleSweep.key,
+    values: roleSweep.values,
+    known: roleSweep.rolesKnown,
+    labeled: roleSweep.rolesKnown ? roleSweep.byId.size : 0,
+    errors: roleSweep.errors,
+  };
+  graph.meta.schemaEpoch = SCHEMA_EPOCH;
   graph.meta.scopeCanonical = scopeCanonical;
   if (scopeRaw && !scopeCanonical) graph.meta.scopeResolveError = canonicalCwds.get(scopeRaw)?.error ?? "unresolved";
   graph.meta.partial = graph.meta.scan.truncated || uninspected > 0;
@@ -1019,7 +1348,7 @@ Options:
   --cwd <path>     scope to one workspace
   --out <file>     write the JSON to a file
   --serve [port]   loopback viewer + live JSON (default port 7788)
-  --assert         evaluate topology invariants A1–A6 over the collected graph
+  --assert         evaluate topology invariants A1–A7 over the collected graph
                    and print { ok, violations, cannotVerify, meta }
   --help, -h       this text
 
@@ -1028,14 +1357,20 @@ Assert exit codes:
   3  violations found
   2  usage or collection error ({ ok:false, code, message } on stdout)
 
-Invariants: A1 one-writer-per-scope, A2 writer-is-acceptor, A3 unknown-role in
-governed scope, A4 peer-orchestrates, A5 supervisor-not-observe-only, A6
-count-integrity. Unknown is never pass: a signal the graph does not carry is
-reported under cannotVerify with the concrete reason. Neither is unknown a
-violation: A2, A3 and A5's posture leg report as advisories (cannotVerify with
-"advisory": true) because they rest on the provider-name role vocabulary that
-F015 owns, and A1's true-positive branch is vacuous until F015 gives roles a
-source. A4, A5's delegation leg and A6 are fact-based and still exit 3.`;
+Invariants: A1 one-writer-per-scope, A2 writer-is-acceptor, A3 missing-role-
+record in governed scope (the F015 residue clause), A4 peer-orchestrates, A5
+supervisor-not-observe-only, A6 count-integrity, A7 role-record-vs-mechanism.
+Roles are swept from the harness.role label (${ROLE_LABEL_KEY}=<value> per
+value of a closed set) with the provider suffix as cross-check.
+
+Unknown is never pass: a signal the graph does not carry is reported under
+cannotVerify with the concrete reason. Neither is unknown a violation: A2 and
+A5's posture leg report as advisories (cannotVerify with "advisory": true)
+because they read Mode, which is not authority on a pack-enforced seat, and A3
+reports the pre-epoch DECLARED cohort as one advisory per scope because the
+taxonomy did not exist when those agents were created. A1, A3's post-epoch
+branch, A4, A5's delegation leg, A6 and A7's pack-enforced leg are fact-based
+and exit 3. Schema epoch: ${SCHEMA_EPOCH}.`;
 }
 
 async function main() {

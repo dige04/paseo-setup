@@ -132,21 +132,30 @@ stays meaningful without git history.
 | Entry | Enforced by | State |
 |---|---|---|
 | AP-01 / AP-01r | not yet — needs diff+typecheck integration in the review lane | pattern |
-| AP-02 | `test/reconcile-qualification.test.mjs` + rule in review instruments | **mechanism** |
+| AP-02 | `test/reconcile-qualification.test.mjs` + rule in review instruments; `governance-graph` A1/A3 positive controls in `test/governance-graph-assert.test.mjs` reach exit 3 through the real CLI | **mechanism** |
 | AP-03 | not yet — greppable signals, candidate for `governance-graph --assert` | candidate |
 | AP-04 | `checkReportGate()` in `ultra-review-report.mjs`, called by `eod-digest.mjs` AND by CI via `scripts/check-report-gates.mjs` (exit wiring proven by `test/check-report-gates.test.mjs`); mandatory root-cause reopen in `paseo-ultra-review` SKILL | **mechanism** (gate — two automatic callers) + rule (reopen) |
 
-The deterministic assert tier is `A1–A6` as shipped in `governance-graph.mjs`
-(`A1` one-writer-per-scope, `A2` writer-is-acceptor, `A3` unknown-role-in-governed-scope,
-`A4` peer-orchestrates, `A5` supervisor-not-observe-only, `A6` count-integrity) and is
-tracked in `docs/governance-graph.md`, not here — this file is for *model behavior*
-patterns that need an episode trail. Honesty note (fix-cycle ruling, 2026-08-31):
-**`A1`'s true-positive branch is vacuous until F015 lands a produced role taxonomy** —
-every provider it can see is pack-enforced (mode is not write authority there) and every
-unenforced provider (`omp`/`agy`/`codex`) has no role suffix and is invisible to it.
-A1 currently earns its keep by NOT crying wolf (idle seats → one advisory; spelling
-splits → one canonical scope); its teeth arrive with F015. Do not "simplify" the
-suppression clauses on the grounds that A1 never fires — that is the vacuum, stated.
+The deterministic assert tier is `A1–A7` as shipped in `governance-graph.mjs`
+(`A1` one-writer-per-scope, `A2` writer-is-acceptor, `A3` missing-role-record-in-governed-scope,
+`A4` peer-orchestrates, `A5` supervisor-not-observe-only, `A6` count-integrity,
+`A7` role-record-vs-mechanism) and is tracked in `docs/governance-graph.md`, not here —
+this file is for *model behavior* patterns that need an episode trail.
+
+**Vacuum closed (F015, 2026-08-31).** The previous note here recorded `A1`'s
+true-positive branch as vacuous: every provider it could see was pack-enforced (mode is
+not write authority there) and every unenforced provider (`omp`/`agy`/`codex`) carried no
+role suffix, so `peer AND unenforced` was empty on every fleet the pack could produce and
+its only positive control was a hand-built `omp-peer`. Roles are now sourced from a
+server-side `harness.role` sweep, so a labelled unenforced seat lands in that
+intersection. The branch is reached through the **real CLI** — two running labelled
+same-scope peers, exactly one violation, exit 3 — which is what AP-02 demands of a
+fail-closed gate and what the synthetic control could never supply. The same change adds
+`A3`'s **residue clause** (an agent in a governed scope with no role record, created after
+the recorded schema epoch, is a violation) and `A7`. The suppression clauses still stand
+and still must not be "simplified": A1 also earns its keep by NOT crying wolf (idle seats
+→ one advisory; spelling splits → one canonical scope), and quiet is now a finding about
+the fleet rather than a property of the check.
 
 ## AP-04 — symptom-patching a converged root
 

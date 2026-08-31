@@ -24,7 +24,11 @@ import {
 	validateThinking,
 	waitForRuntimeIdentity,
 	extractRuntimeIdentity,
+	validateLifecycleLabels,
+	withSchemaMarker,
+	WORKSPACE_DISPOSITIONS,
 } from "../scripts/remote-paseo.mjs";
+import { HARNESS_DISPOSITION_VALUES, HARNESS_ROLE_VALUES } from "../scripts/lib-common.mjs";
 import { loadClusterConfig } from "../scripts/model-routing.mjs";
 
 // ---------------------------------------------------------------------------
@@ -267,8 +271,58 @@ function withEndpoint(value) {
 		["harness.owner=paseo-claude-team", "harness.role=reviewer"],
 	);
 	expectRemoteError("USAGE", () => parseLabels("bare-label"));
-	expectRemoteError("USAGE", () => parseLabels("harness.role=writer,harness.role=reviewer"));
+	expectRemoteError("USAGE", () => parseLabels("harness.role=peer,harness.role=lead"));
 	expectRemoteError("USAGE", () => parseLabels("paseo.parent-agent-id=x"));
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle labels — the F015 two-layer taxonomy, one owner per vocabulary.
+// ---------------------------------------------------------------------------
+
+{
+	const base = "harness.owner=paseo-claude-team,harness.run=r,harness.project=p,harness.task=T-1,harness.retention=ephemeral";
+	const withRole = (role) => parseLabels(`${base},harness.role=${role}`);
+
+	// LAYER 1 is closed and is exactly the authority triple. The retired enum's
+	// values are now rejected — the point of the cut, not a casualty of it.
+	for (const role of HARNESS_ROLE_VALUES) {
+		assert.ok(validateLifecycleLabels(withRole(role)), `${role} is an authority role`);
+	}
+	for (const retired of ["observer", "writer", "reviewer"]) {
+		expectRemoteError("USAGE", () => validateLifecycleLabels(withRole(retired)));
+	}
+	// A DISPOSITION in the authority key is the exact F015 defect (the live
+	// fleet carried harness.role=scout), and it must be refused, not coerced.
+	for (const disposition of HARNESS_DISPOSITION_VALUES) {
+		expectRemoteError("USAGE", () => validateLifecycleLabels(withRole(disposition)));
+	}
+	expectRemoteError("USAGE", () => validateLifecycleLabels(withRole("scout")));
+
+	// LAYER 2 is optional and validated when present: a typo would be frozen
+	// into the governance record, because labels are immutable after create.
+	for (const disposition of WORKSPACE_DISPOSITIONS) {
+		assert.ok(validateLifecycleLabels(parseLabels(`${base},harness.role=peer,harness.disposition=${disposition}`)));
+	}
+	expectRemoteError("USAGE", () =>
+		validateLifecycleLabels(parseLabels(`${base},harness.role=peer,harness.disposition=engineeer`)));
+	// ...and an AUTHORITY value in the method key is refused just as firmly.
+	expectRemoteError("USAGE", () =>
+		validateLifecycleLabels(parseLabels(`${base},harness.role=peer,harness.disposition=peer`)));
+	assert.deepEqual([...WORKSPACE_DISPOSITIONS], [...HARNESS_DISPOSITION_VALUES], "one owner, re-exported name");
+
+	// The schema marker is validated when present and stamped when absent. It is
+	// POSITIVE evidence only — the epoch test is inspect.CreatedAt, so a missing
+	// marker must never be a rejection, or the gate would deny a Supervisor
+	// recovery driven from prompts that predate F015.
+	expectRemoteError("USAGE", () =>
+		validateLifecycleLabels(parseLabels(`${base},harness.role=peer,harness.schema=v1`)));
+	assert.ok(validateLifecycleLabels(withRole("peer")), "an unmarked but otherwise valid set still passes");
+	assert.deepEqual(withSchemaMarker(["harness.role=peer"]), ["harness.role=peer", "harness.schema=v2"]);
+	assert.deepEqual(withSchemaMarker(["harness.schema=v2"]), ["harness.schema=v2"], "stamping is idempotent");
+	// parseLabels caps at 16; stamping must not push a caller over a ceiling
+	// that would then reject the very argv this wrapper just built.
+	const full = Array.from({ length: 16 }, (_, i) => `k${i}=v`);
+	assert.deepEqual(withSchemaMarker(full), full);
 }
 
 // ---------------------------------------------------------------------------
@@ -424,8 +478,17 @@ function loadClusterConfigFromFixture() {
 // ---------------------------------------------------------------------------
 
 const EP = "https://app.paseo.sh/#offer=tok";
-const LIFECYCLE_LABELS = "harness.owner=paseo-claude-team,harness.run=run-1,harness.project=demo,harness.role=writer,harness.task=T-1,harness.retention=ephemeral";
-const LIFECYCLE_LABEL_ARGV = LIFECYCLE_LABELS.split(",").flatMap((label) => ["--label", label]);
+// F015 hard cut: harness.role is the AUTHORITY vocabulary {supervisor,lead,
+// peer} and nothing else. The retired enum {observer,writer,reviewer,...} had
+// exactly one instance in the daemon's entire recorded history while the live
+// fleet carried values it could not express, so the invalid inputs below are
+// derived from the CURRENT constant, never from the remembered retired one.
+const LIFECYCLE_LABELS = "harness.owner=paseo-claude-team,harness.run=run-1,harness.project=demo,harness.role=peer,harness.task=T-1,harness.retention=ephemeral";
+// buildArgv stamps the positive schema marker on every seat this wrapper
+// creates, so the emitted argv is the caller's labels PLUS harness.schema.
+const LIFECYCLE_LABEL_ARGV = `${LIFECYCLE_LABELS},harness.schema=v2`
+	.split(",")
+	.flatMap((label) => ["--label", label]);
 
 {
 	const t = "buildArgv: health";
@@ -654,7 +717,7 @@ const LIFECYCLE_LABEL_ARGV = LIFECYCLE_LABELS.split(",").flatMap((label) => ["--
 			provider: "claude-peer/testprov/model-b",
 			thinking: "medium",
 			workspace: "wks-1",
-			labels: "harness.owner=paseo-claude-team,harness.role=writer",
+			labels: "harness.owner=paseo-claude-team,harness.role=peer",
 			prompt: "x",
 		}, EP),
 	);

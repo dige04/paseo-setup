@@ -688,13 +688,61 @@ export function teamToolBlockReason(
 // ---------------------------------------------------------------------------
 
 const SUPERVISOR_RECOVERY_PURPOSES = new Set(["recovery", "bootstrap"]);
-const HARNESS_AGENT_ROLES = new Set([
-	"observer",
-	"writer",
-	"reviewer",
-	"lead",
+
+// ---------------------------------------------------------------------------
+// The two closed label vocabularies. THIS FILE IS THEIR SINGLE OWNER (F015).
+//
+// LAYER 1 — AUTHORITY (`harness.role`). Exactly `TeamRole`, and deliberately
+// so: the label is the daemon-side projection of the role the provider config
+// arms through PASEO_CLAUDE_ROLE, so the two are ONE axis with two projections
+// and can be cross-checked against each other (governance-graph A7). It
+// replaced {observer,writer,reviewer,lead,supervisor}, an enum that had ONE
+// instance in the daemon's entire recorded history (measured 2026-08-31) while
+// the live fleet carried values it could not express.
+//
+// LAYER 2 — METHOD (`harness.disposition`). The V3 brief's DISPOSITION
+// vocabulary. CREATION-TIME ONLY, NEVER AUTHORITATIVE, and NEVER a second
+// source for SKILL_ADMISSION — skill admission reads DISPOSITION from the
+// current V3 brief and from nothing else, because a label is set once at
+// create and a brief is the thing that actually changes per task.
+//
+// A .mjs support script cannot import this file: the installer puts
+// policy-core.mts at $CLAUDE_TEAM_DIR/ and the support scripts one level down
+// at $CLAUDE_TEAM_DIR/scripts/ (install.sh:68 vs :73), so no single relative
+// specifier resolves in both the repo and the installed layout. The runtime
+// mirror lives in scripts/lib-common.mjs and drift is a test failure — the
+// same owner+mirror+parity shape as config/skill-admission.json and
+// lib-common's leadWriteEnabled(). See test/lib-common.test.mjs.
+// ---------------------------------------------------------------------------
+
+/** Layer 1 — authority. Closed. Identical to `TeamRole`. */
+export const HARNESS_ROLE_VALUES: readonly TeamRole[] = Object.freeze([
 	"supervisor",
+	"lead",
+	"peer",
 ]);
+
+/** Layer 2 — method. Closed. Identical to the V3 brief DISPOSITION set. */
+export const HARNESS_DISPOSITION_VALUES: readonly string[] = Object.freeze([
+	"repository-scout",
+	"documentation-researcher",
+	"solution-architect",
+	"engineer",
+	"independent-reviewer",
+]);
+
+/**
+ * Positive marker for the F015 schema epoch: an agent created by a compliant
+ * caller carries it. It is NOT the epoch test — an unlabeled agent carries no
+ * marker at all, so absence proves nothing and the epoch is decided on
+ * `inspect.CreatedAt` against a recorded constant (governance-graph
+ * SCHEMA_EPOCH). Validated when present, never required, because requiring it
+ * would deny a Supervisor recovery driven from prompts this change does not own.
+ */
+export const HARNESS_SCHEMA_VERSION = "v2";
+
+const HARNESS_AGENT_ROLES = new Set<string>(HARNESS_ROLE_VALUES);
+const HARNESS_DISPOSITIONS = new Set<string>(HARNESS_DISPOSITION_VALUES);
 const HARNESS_RETENTION = new Set(["ephemeral", "keep"]);
 
 /** Machine ownership labels required on every team-created Paseo agent. */
@@ -721,6 +769,17 @@ export function lifecycleLabelsBlockReason(args: unknown): string | null {
 	if (typeof map["harness.retention"] !== "string" || !HARNESS_RETENTION.has(map["harness.retention"])) {
 		return 'create_agent labels["harness.retention"] must be "ephemeral" or "keep".';
 	}
+	// Layer 2 is optional and validated when present: a disposition is what the
+	// seat is FOR, and a value outside the closed set is a typo that would sit
+	// in the governance record forever (labels are immutable after create).
+	if (map["harness.disposition"] !== undefined) {
+		if (typeof map["harness.disposition"] !== "string" || !HARNESS_DISPOSITIONS.has(map["harness.disposition"])) {
+			return `create_agent labels["harness.disposition"] must be one of ${[...HARNESS_DISPOSITIONS].join(", ")} when present. It records the METHOD and is never an authority source.`;
+		}
+	}
+	if (map["harness.schema"] !== undefined && map["harness.schema"] !== HARNESS_SCHEMA_VERSION) {
+		return `create_agent labels["harness.schema"] must be "${HARNESS_SCHEMA_VERSION}" when present.`;
+	}
 	return null;
 }
 
@@ -742,6 +801,12 @@ export function lifecycleLabelsBlockReason(args: unknown): string | null {
  * to a solution-architect turn, per docs/review-instruments.md. Non-pack
  * skills are out of scope here. config/skill-admission.json mirrors this
  * table for humans; test asserts the two never drift.
+ *
+ * DISPOSITION HERE IS THE BRIEF'S, NEVER THE LABEL'S. `harness.disposition` is
+ * creation-time only, never authoritative, and never a second source for
+ * SKILL_ADMISSION: it is written once when the agent is created and cannot
+ * follow the seat across tasks, so admitting a skill on it would grant a
+ * reviewer skill to a seat whose CURRENT brief is an engineering task.
  */
 export const PACK_SKILLS = Object.freeze([
 	"paseo-team-lead",

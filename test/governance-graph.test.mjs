@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import {
+  BASE_LIST_ARGS,
+  ROLE_LABEL_KEY,
   buildGraph,
   collectGraph,
   enforcementClass,
@@ -10,11 +12,15 @@ import {
   parseArgs,
   providerFamily,
   roleFromProvider,
+  sweepRoleLabels,
 } from "../scripts/governance-graph.mjs";
+import { HARNESS_ROLE_VALUES } from "../scripts/lib-common.mjs";
 
 // ---------------------------------------------------------------------------
-// Role derivation. `inspect` carries no Labels field, so the provider name is
-// the only source — anything else must stay unknown rather than be guessed.
+// Role derivation from the provider suffix. This is the CROSS-CHECK and the
+// fallback, not the source: `inspect` carries no Labels field, so the suffix is
+// all a seat with no harness.role record ever offers, and anything
+// unrecognized must stay unknown rather than be guessed.
 // ---------------------------------------------------------------------------
 
 assert.equal(roleFromProvider("claude-lead"), "lead");
@@ -27,6 +33,113 @@ assert.equal(roleFromProvider("claude/claude-opus-5"), "unknown");
 assert.equal(roleFromProvider("codex"), "unknown");
 assert.equal(roleFromProvider(undefined), "unknown");
 assert.equal(roleFromProvider("misleading"), "unknown");
+
+// ---------------------------------------------------------------------------
+// The harness.role sweep — the actual role source (F015).
+//
+// The daemon offers exact-match on one key=value, AND across keys, and last
+// wins. There is NO existence selector and NO negation, so "who carries no
+// role?" is only computable as the scoped population minus the union of the
+// per-value results — which is why the value set must be closed and why every
+// query must be posture-identical to the base list.
+// ---------------------------------------------------------------------------
+
+// KILLING TEST — selector shape. `paseo ls --label harness.role` (key, no
+// value) FAILS OPEN: measured on 0.6.1 it returned the entire 200-agent fleet.
+// A sweep that accepted it would compute "everybody is labelled" and the
+// residue clause would go permanently, silently vacuous. The validator must
+// throw BEFORE any query, so assert the daemon was never called at all — a
+// version that queried first and threw after would still be green on the throw.
+{
+  for (const badKey of ["harness role", "harness.role=", "", "harness.role\n", "harness.role;rm -rf /"]) {
+    let calls = 0;
+    await assert.rejects(
+      () => sweepRoleLabels(async () => { calls++; return []; }, () => 1000, { roleLabelKey: badKey }),
+      /invalid label selector/,
+      `malformed key must throw: ${JSON.stringify(badKey)}`,
+    );
+    assert.equal(calls, 0, `a malformed selector must never reach the daemon: ${JSON.stringify(badKey)}`);
+  }
+  // A value carrying the separator would compose a second "=" and select
+  // something nobody asked for.
+  let calls = 0;
+  await assert.rejects(
+    () => sweepRoleLabels(async () => { calls++; return []; }, () => 1000, { roleValues: ["peer=lead"] }),
+    /invalid label selector/,
+  );
+  assert.equal(calls, 0);
+}
+
+// KILLING TEST — posture alignment. Every label query is the BASE list argv
+// plus one --label, and both call sites SPREAD the one constant so the two
+// postures cannot drift by editing one of them. What this pins is that the
+// derivation stays a derivation: a call site that stops spreading and hardcodes
+// its own argv reopens the gap — `-a` on the base list alone puts archived
+// agents in the population but in no role result, landing them as residue
+// nobody can fix, and `-a` on the label queries alone gives archived agents
+// records the base list never asked about. Asserted structurally, not by
+// matching hand-typed argv.
+{
+  // The value itself, not just the derivation: `-g` is load-bearing (Paseo has
+  // no server-side workspace scope, so scoping is client-side and the base list
+  // must be global), and the ABSENCE of `-a` is too — an archived population in
+  // one argv and not the other is the drift this pair exists to prevent.
+  assert.deepEqual([...BASE_LIST_ARGS], ["ls", "-g"]);
+
+  const seen = [];
+  const sweep = await sweepRoleLabels(async (args) => { seen.push(args); return []; }, () => 1000);
+  assert.equal(seen.length, HARNESS_ROLE_VALUES.length, "one query per value of the closed set — a fixed cost");
+  for (const args of seen) {
+    assert.deepEqual(args.slice(0, BASE_LIST_ARGS.length), [...BASE_LIST_ARGS],
+      "a label query must be the base list argv plus a selector, or the two populations are different fleets");
+    assert.equal(args.length, BASE_LIST_ARGS.length + 2);
+    assert.equal(args[BASE_LIST_ARGS.length], "--label");
+  }
+  assert.deepEqual(seen.map((a) => a.at(-1)), HARNESS_ROLE_VALUES.map((v) => `${ROLE_LABEL_KEY}=${v}`));
+  assert.equal(sweep.rolesKnown, true, "every query answered");
+  assert.deepEqual([...sweep.byId], []);
+}
+
+// rolesKnown is an ALL-queries-succeeded gate, and a partial answer is worse
+// than none: the ids that did arrive would make everyone else look unlabelled.
+{
+  const sweep = await sweepRoleLabels(async (args) => {
+    if (args.at(-1) === `${ROLE_LABEL_KEY}=peer`) throw new Error("connection refused");
+    return [{ id: "L1" }];
+  }, () => 1000);
+  assert.equal(sweep.rolesKnown, false);
+  assert.match(sweep.errors.join(" "), /connection refused/);
+}
+
+// A non-list answer is a failure, not an empty result. `[]` and `null` are
+// different claims and only one of them means "nobody carries this label".
+{
+  const sweep = await sweepRoleLabels(async () => null, () => 1000);
+  assert.equal(sweep.rolesKnown, false);
+  assert.match(sweep.errors.join(" "), /did not return a list/);
+}
+
+// One key holds one value, so an id answering to two of them is the daemon
+// contradicting itself. Picking a winner would be inventing a fact; the sweep
+// downgrades itself instead — which is also exactly what a fake that ignores
+// --label produces, so this branch catches a lying test fixture too.
+{
+  const sweep = await sweepRoleLabels(async () => [{ id: "P1" }], () => 1000);
+  assert.equal(sweep.rolesKnown, false, "an id in two role sets makes the whole sweep untrustworthy");
+  assert.match(sweep.errors.join(" "), /one key holds one value/);
+}
+
+// The happy path: exact-match answers, intersected by id.
+{
+  const sweep = await sweepRoleLabels(async (args) => {
+    const value = args.at(-1).split("=")[1];
+    return value === "peer" ? [{ id: "P1" }, { id: "P2" }] : value === "lead" ? [{ Id: "L1" }] : [];
+  }, () => 1000);
+  assert.equal(sweep.rolesKnown, true);
+  assert.equal(sweep.byId.get("P1"), "peer");
+  assert.equal(sweep.byId.get("L1"), "lead", "the PascalCase id spelling is read too");
+  assert.equal(sweep.byId.size, 3);
+}
 
 // ---------------------------------------------------------------------------
 // Provider family and enforcement class. Role says what a seat is FOR;
@@ -99,6 +212,45 @@ assert.ok(
   uninspected.cwd.endsWith(join("proj")) && !uninspected.cwd.startsWith("~"),
   "the `~/x` spelling ls returns is expanded before anything compares it",
 );
+
+// The label is the PRIMARY source and the suffix is the fallback; roleSource
+// records which one answered, because A3 asks "is there a record?" and A7 asks
+// "do the two agree?" — neither is answerable from the effective role alone.
+{
+  const canonical = new Map([["/home/u/proj", { canonical: "/canon/proj", error: null }]]);
+  const labelled = normalizeAgent(listed, detail, canonical, new Map([["a1", "peer"]]));
+  assert.equal(labelled.role, "peer");
+  assert.equal(labelled.labelRole, "peer");
+  assert.equal(labelled.providerRole, "peer");
+  assert.equal(labelled.roleSource, "label");
+
+  // A label on a provider whose name carries no role: the INCLUSION case that
+  // brings the unenforced fleet into the audited population for the first time.
+  const ompListed = { id: "o1", shortId: "o1", provider: "omp/gemini", status: "running", cwd: "~/proj" };
+  const included = normalizeAgent(ompListed, { Provider: "omp", Status: "running" }, null, new Map([["o1", "peer"]]));
+  assert.equal(included.role, "peer", "the claim decides the role");
+  assert.equal(included.providerRole, "unknown", "and the suffix still says nothing");
+  assert.equal(included.roleSource, "label");
+  assert.equal(included.enforcement, "unenforced", "inclusion is not authority: the seat is still unenforced");
+
+  // Disagreement is preserved rather than reconciled — A7 owns the verdict.
+  const disagreeing = normalizeAgent(listed, detail, canonical, new Map([["a1", "lead"]]));
+  assert.equal(disagreeing.role, "lead");
+  assert.equal(disagreeing.providerRole, "peer");
+
+  // No sweep at all is exactly the pre-F015 behaviour, and claims no record.
+  const unswept = normalizeAgent(listed, detail, canonical);
+  assert.equal(unswept.role, "peer");
+  assert.equal(unswept.labelRole, null);
+  assert.equal(unswept.roleSource, "provider");
+  const bare = normalizeAgent({ id: "x", provider: "claude/opus", status: "idle", cwd: "" }, null);
+  assert.equal(bare.roleSource, "none", "no label and no suffix is not a source");
+}
+
+// CreatedAt comes from inspect and is the only absolute creation time the
+// daemon publishes — `ls` carries "7 hours ago", which no epoch can use.
+assert.equal(normalizeAgent(listed, { ...detail, CreatedAt: "2026-08-30T00:00:00.000Z" }).createdAt, "2026-08-30T00:00:00.000Z");
+assert.equal(normalizeAgent(listed, null).createdAt, null, "a failed inspect has no epoch side");
 
 // Staleness is suspected, never asserted, and only for inspected running agents.
 assert.equal(markStale(norm, { now: Date.parse("2026-08-20T00:01:00.000Z") }).stale, false);

@@ -17,7 +17,52 @@ import {
 	policyWithAuthority,
 	isAgentBrowserMcpTarget,
 	resolvePeerMode,
+	HARNESS_ROLE_VALUES,
+	HARNESS_DISPOSITION_VALUES,
+	HARNESS_SCHEMA_VERSION,
+	SKILL_ADMISSION,
 } from "../extensions/policy-core.mts";
+
+// --- the two closed label vocabularies (F015) --------------------------------
+//
+// This module is their single owner. Layer 1 is AUTHORITY and is exactly
+// TeamRole, because the label and the provider suffix are two projections of
+// one axis and must be cross-checkable. Layer 2 is METHOD and is exactly the
+// V3 brief DISPOSITION set.
+{
+	const roles: string[] = [...HARNESS_ROLE_VALUES];
+	assert.deepEqual([...roles].sort(), ["lead", "peer", "supervisor"]);
+	assert.equal(HARNESS_SCHEMA_VERSION, "v2");
+	assert.deepEqual([...HARNESS_DISPOSITION_VALUES].sort(), [
+		"documentation-researcher",
+		"engineer",
+		"independent-reviewer",
+		"repository-scout",
+		"solution-architect",
+	]);
+	// The two layers are disjoint. If a word were in both, "harness.role=scout"
+	// — the exact mislabelling F015 was opened for — would become expressible
+	// again and the split would buy nothing.
+	for (const disposition of HARNESS_DISPOSITION_VALUES) {
+		assert.ok(!roles.includes(disposition), `${disposition} must not be an authority role`);
+	}
+
+	// KILLING TEST — harness.disposition is NEVER a second source for skill
+	// admission. SKILL_ADMISSION's required-disposition values must come from
+	// the current V3 brief; a label is written once at create and cannot follow
+	// a seat across tasks, so admitting on it would hand a reviewer skill to a
+	// seat whose CURRENT brief is an engineering task. This pins the values as
+	// members of the shared vocabulary while the CONSUMER stays the brief.
+	for (const [role, admission] of Object.entries(SKILL_ADMISSION)) {
+		for (const [skill, required] of Object.entries(admission)) {
+			if (required === null) continue;
+			assert.ok(
+				HARNESS_DISPOSITION_VALUES.includes(required),
+				`${role}/${skill} requires disposition "${required}", which is not in the closed vocabulary`,
+			);
+		}
+	}
+}
 
 // --- parseTaskBrief ----------------------------------------------------------
 

@@ -280,6 +280,64 @@ export function leadWriteEnabled(env = process.env) {
 	return raw === "1" || raw === "true" || raw === "yes";
 }
 
+// ---------------------------------------------------------------------------
+// The two closed label vocabularies — RUNTIME MIRROR, not the owner.
+//
+// extensions/policy-core.mts owns both sets (F015). A support script cannot
+// import that file: the installer puts policy-core.mts at $CLAUDE_TEAM_DIR/
+// and support scripts one level down at $CLAUDE_TEAM_DIR/scripts/
+// (scripts/install.sh:68 vs :73), so no single relative specifier resolves in
+// both the repo and the installed layout, and test/installer-contract.test.mjs
+// executes support scripts from a FLAT directory where `../extensions/` does
+// not exist at all. So the vocabulary is mirrored here exactly once, every
+// .mjs consumer imports it from here rather than re-typing a literal, and
+// test/lib-common.test.mjs fails the build if this copy drifts from the owner
+// or if a second literal copy appears anywhere in scripts/ or extensions/.
+// This is the same owner+mirror+parity shape as leadWriteEnabled() above.
+// ---------------------------------------------------------------------------
+
+/** Layer 1 — AUTHORITY (`harness.role`). Closed; equals policy-core TeamRole. */
+export const HARNESS_ROLE_VALUES = Object.freeze(["supervisor", "lead", "peer"]);
+
+/**
+ * Layer 2 — METHOD (`harness.disposition`). Closed; equals the V3 brief
+ * DISPOSITION set. Creation-time only, never authoritative, never a second
+ * source for skill admission.
+ */
+export const HARNESS_DISPOSITION_VALUES = Object.freeze([
+	"repository-scout",
+	"documentation-researcher",
+	"solution-architect",
+	"engineer",
+	"independent-reviewer",
+]);
+
+/** Positive schema marker. Never the epoch test — see governance-graph SCHEMA_EPOCH. */
+export const HARNESS_SCHEMA_VERSION = "v2";
+
+/**
+ * Reject anything that is not an exact `key=value` label selector — BY
+ * THROWING, before it can reach the daemon.
+ *
+ * This is not defensive typing. MEASURED on Paseo 0.6.1: `paseo ls --label
+ * harness.role` (key, no value) FAILS OPEN and returns the entire fleet — 200
+ * agents on the host this was measured on. A sweep that computes "who is NOT
+ * in any role set" from that answer concludes that everybody is labeled, which
+ * is the precise inverse of the fail-closed reading. The daemon offers no
+ * existence or negation selector to check against, so this validator is the
+ * only thing standing between a malformed key and a silently vacuous audit.
+ *
+ * Shape and message are kept behaviour-identical to the private copy in
+ * reconcile-observer.mjs (that file is the pattern this inherits and was out
+ * of scope to edit); test/lib-common.test.mjs pins the two together.
+ */
+export function validateLabelSelector(label) {
+	if (typeof label !== "string" || label.length > 256 || !/^[A-Za-z0-9_.-]+=[^=\r\n]+$/.test(label)) {
+		throw new Error(`invalid label selector ${JSON.stringify(label)}; expected key=value`);
+	}
+	return label;
+}
+
 /** Extract "1.8.10" from OCR's `ocr version` output. Null when absent. */
 export function parseOcrVersion(output) {
 	const match = String(output).match(/open-code-review v(\d+\.\d+\.\d+)/i);

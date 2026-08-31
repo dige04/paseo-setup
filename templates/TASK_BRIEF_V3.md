@@ -97,6 +97,18 @@ Field semantics:
   (`MODEL_CLASS` theo task risk) và verify bằng `list_providers` /
   `list_models` trên đúng daemon đích. Peer chỉ echo lại; observed runtime
   identity thuộc về Lead (từ `get_agent_status`).
+- `DISPOSITION` — lớp METHOD (F015 Layer 2): seat này làm *kiểu việc gì*.
+  Vocabulary đóng, và trùng đúng vocabulary của label `harness.disposition`
+  (owner: `extensions/policy-core.mts`). Đây là NGUỒN DUY NHẤT mà skill
+  admission đọc: `harness.disposition` là **creation-time only, không bao giờ
+  authoritative, và không bao giờ là nguồn thứ hai cho `SKILL_ADMISSION`** —
+  label ghi một lần lúc create nên không đi theo seat qua task khác, còn brief
+  thì đổi theo từng task. DISPOSITION không cấp authority: `MODE`,
+  `EDIT_AUTHORITY`, ... mới quyết định quyền.
+- Lớp AUTHORITY (F015 Layer 1) KHÔNG nằm trong brief body: nó là label
+  `harness.role` ∈ {`supervisor`,`lead`,`peer`}, do Lead đặt lúc create và
+  cross-check được với provider suffix. Đừng ghi disposition vào
+  `harness.role` — đó chính là lỗi F015.
 - `ASSIGNED_CANDIDATE_SHA` — chỉ bắt buộc cho `independent-reviewer`;
   reviewer phải refuse review nếu `HEAD != ASSIGNED_CANDIDATE_SHA`.
 - `EXPECTED_BASE_SHA` — writer phải xác nhận base SHA trước khi edit.

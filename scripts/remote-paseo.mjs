@@ -56,6 +56,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+	HARNESS_DISPOSITION_VALUES,
+	HARNESS_ROLE_VALUES,
+	HARNESS_SCHEMA_VERSION,
 	PASEO_CONVENTIONAL_ENTRIES,
 	isEntrypoint,
 	resolveCmdEntry as resolveCmdEntryFromShim,
@@ -205,14 +208,13 @@ const COMMAND_FLAG_KEYS = {
 	send: ["agentRef", "prompt", "promptFile", "wait", "noWait"],
 };
 
-// The V3 brief disposition vocabulary (see templates/TASK_BRIEF_V3.md).
-export const WORKSPACE_DISPOSITIONS = Object.freeze([
-	"repository-scout",
-	"documentation-researcher",
-	"solution-architect",
-	"engineer",
-	"independent-reviewer",
-]);
+/**
+ * The V3 brief disposition vocabulary (see templates/TASK_BRIEF_V3.md), which
+ * is ALSO the `harness.disposition` label vocabulary — one set, one owner.
+ * Re-exported under this module's published name because `--disposition` and
+ * the workspace title convention already spell it this way.
+ */
+export const WORKSPACE_DISPOSITIONS = HARNESS_DISPOSITION_VALUES;
 
 const GLOBAL_FLAG_KEYS = new Set(["cluster", "dryRun", "json", "help"]);
 const BOOLEAN_KEYS = new Set([...BOOLEAN_FLAGS].map(toCamelCase));
@@ -260,7 +262,12 @@ export function parseLabels(raw) {
 	return labels;
 }
 
-const LIFECYCLE_ROLES = new Set(["observer", "writer", "reviewer", "lead", "supervisor"]);
+// F015: one owner for the authority vocabulary. This module used to keep its
+// own literal Set of {observer,writer,reviewer,lead,supervisor}, which drifted
+// from the hook's copy AND from the fleet — the graph and the reconciler could
+// not detect each other lying because they keyed on different words.
+const LIFECYCLE_ROLES = new Set(HARNESS_ROLE_VALUES);
+const LIFECYCLE_DISPOSITIONS = new Set(HARNESS_DISPOSITION_VALUES);
 
 export function validateLifecycleLabels(labels) {
 	const map = new Map(labels.map((label) => {
@@ -279,7 +286,31 @@ export function validateLifecycleLabels(labels) {
 	if (!new Set(["ephemeral", "keep"]).has(map.get("harness.retention"))) {
 		throw usageError("run requires harness.retention=ephemeral|keep");
 	}
+	// Layer 2 is optional; a value outside the closed set is a typo that would
+	// be frozen into the governance record (labels are immutable after create).
+	if (map.has("harness.disposition") && !LIFECYCLE_DISPOSITIONS.has(map.get("harness.disposition"))) {
+		throw usageError(`harness.disposition must be one of ${[...LIFECYCLE_DISPOSITIONS].join("|")}`);
+	}
+	if (map.has("harness.schema") && map.get("harness.schema") !== HARNESS_SCHEMA_VERSION) {
+		throw usageError(`harness.schema must be ${HARNESS_SCHEMA_VERSION}`);
+	}
 	return labels;
+}
+
+/**
+ * Stamp the schema marker on every seat this wrapper creates.
+ *
+ * The marker is POSITIVE evidence only: its presence says "created by a
+ * post-F015 caller", its absence says nothing at all, and the epoch test that
+ * actually has teeth is `inspect.CreatedAt` vs a recorded constant
+ * (governance-graph SCHEMA_EPOCH). Appended rather than required so an
+ * explicit `--labels harness.schema=v2` is idempotent, and skipped at the
+ * 16-label ceiling `parseLabels` enforces rather than pushing a caller over it.
+ */
+export function withSchemaMarker(labels) {
+	if (labels.some((label) => label.startsWith("harness.schema="))) return labels;
+	if (labels.length >= 16) return labels;
+	return [...labels, `harness.schema=${HARNESS_SCHEMA_VERSION}`];
 }
 
 // ---------------------------------------------------------------------------
@@ -658,7 +689,7 @@ export function buildArgv(command, opts, endpoint) {
 			if (typeof opts.title === "string" && opts.title.trim() !== "") {
 				argv.push("--title", opts.title.trim());
 			}
-			const labels = validateLifecycleLabels(parseLabels(opts.labels));
+			const labels = withSchemaMarker(validateLifecycleLabels(parseLabels(opts.labels)));
 			for (const label of labels) argv.push("--label", label);
 			const waitTimeout =
 				typeof opts.waitTimeout === "string" && opts.waitTimeout.trim() !== "";

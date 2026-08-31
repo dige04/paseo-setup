@@ -205,10 +205,34 @@ Every team agent must be created with these supported Paseo agent labels:
 harness.owner=paseo-claude-team
 harness.run=<stable correlation id for this Lead run>
 harness.project=<Paseo project id>
-harness.role=observer|writer|reviewer|lead|supervisor
+harness.role=supervisor|lead|peer
 harness.task=<TASK_ID>
 harness.retention=ephemeral|keep
+harness.disposition=<the brief's DISPOSITION>          # optional, recommended
+harness.schema=v2                                       # stamped automatically by remote-paseo run
 ```
+
+**Two layers, and they are not interchangeable (F015).**
+`harness.role` is **AUTHORITY**: the closed triple `supervisor|lead|peer`, which
+is exactly the role the provider config arms through `PASEO_CLAUDE_ROLE`, so the
+label and the provider suffix cross-check each other — a `claude-peer` seat
+labelled `harness.role=lead` is a governance violation (`A7`), not a typo to
+work around. The retired enum `observer|writer|reviewer` is **refused** by the
+create-time gate: it had one instance in the daemon's entire history while the
+live fleet carried values it could not express.
+
+`harness.disposition` is **METHOD**: the brief's `DISPOSITION` vocabulary
+(`repository-scout | documentation-researcher | solution-architect | engineer |
+independent-reviewer`). It is **creation-time only, never authoritative, and
+never a second source for skill admission** — skill gating reads `DISPOSITION`
+from the peer's *current* V3 brief and from nothing else, because a label is
+written once at create and cannot follow a seat across tasks. Do not put a
+disposition in `harness.role`; that mislabelling is what F015 was opened for.
+
+Every agent created after the schema epoch `2026-08-31T12:00:00Z` in a governed
+scope **must** carry `harness.role`, or `governance-graph.mjs --assert` reports
+it as an `A3` residue violation and exits 3. Agents older than the epoch are the
+declared cohort and are reported as an advisory; they are never relabelled.
 
 Use the current Lead's `PASEO_AGENT_ID` as `harness.run` when available;
 otherwise generate one correlation id and reuse it for the whole run. Default
@@ -337,7 +361,10 @@ local one. In the commands below, `<id>` is the HOST_ID from
    a local/standalone workspace for review.
 7. Create the agent on the remote daemon (background by default; add
    `--wait-timeout <dur>` to wait for completion):
-   `node <PASEO_TEAM_SCRIPTS_DIR>/remote-paseo.mjs run --host-id <id> --provider <role-provider>/<pi-provider>/<model-id> --thinking <level> --workspace <wks> --title <t> --labels harness.owner=paseo-claude-team,harness.run=<run-id>,harness.project=<project-id>,harness.role=<role>,harness.task=<TASK_ID>,harness.retention=ephemeral --brief <brief-file>`
+   `node <PASEO_TEAM_SCRIPTS_DIR>/remote-paseo.mjs run --host-id <id> --provider <role-provider>/<pi-provider>/<model-id> --thinking <level> --workspace <wks> --title <t> --labels harness.owner=paseo-claude-team,harness.run=<run-id>,harness.project=<project-id>,harness.role=peer,harness.disposition=<DISPOSITION>,harness.task=<TASK_ID>,harness.retention=ephemeral --brief <brief-file>`
+   (`harness.role` is the authority triple — a delegated worker is `peer`; the
+   brief's disposition goes in `harness.disposition`. `harness.schema=v2` is
+   appended by the wrapper.)
    The envelope returns `agentRef: <host-id>/<agent-id>` — record it.
 8. Verify the OBSERVED runtime identity on the remote daemon. The wrapper's
    `run` command performs a bounded startup poll; use `--startup-timeout <dur>`
