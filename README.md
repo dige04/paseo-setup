@@ -54,13 +54,19 @@ Then, by hand (the pack never writes your Paseo config):
      inspect the runtime catalog (`paseo provider models claude-peer --json`)
      and smoke-test before widening it. Never use `additionalModels` — it
      appends to the catalog instead of replacing it.
-   - The built-in `claude` provider is disabled (`"claude": {"enabled": false}`)
-     so a role-less session cannot be started by accident. Verified live on this
-     host 2026-09-01: with the base disabled, `paseo provider ls` reports
-     `claude  unavailable  Disabled` while `claude-supervisor`, `claude-lead` and
-     `claude-peer` all stay `available  Enabled`. Note this disables the SEAT, not
-     an already-running agent — an agent started on bare `claude` keeps running,
-     so start the standing Lead on `claude-lead` explicitly.
+   - The built-in `claude` provider is disabled (`"claude": {"enabled": false}`).
+     **Treat this as a preference, not a mechanism.** It works while it holds —
+     measured 2026-09-01, `claude` reads `unavailable  Disabled` while
+     `claude-supervisor`, `claude-lead` and `claude-peer` all stay
+     `available  Enabled` — but it does not survive. It reverted to `true` twice
+     the same day: once across `paseo daemon restart`, and once with the daemon
+     never restarting (same pid, continuous uptime), when the desktop app
+     reconnected and `provider-snapshot-manager` wrote the whole provider set back
+     with built-ins materialised as enabled. It is not a timer: 90s of continuous
+     observation held. So do not build a guarantee on it. It also disables the
+     SEAT, never a running agent. The durable form of "the Lead sits on a hooked
+     seat" is a dispatch discipline plus detection (`governance-graph`
+     `enforcementClass`), not this line.
 2. **`paseo daemon reload` — and do it immediately after the edit.** Measured
    2026-09-01: the daemon persists its IN-MEMORY provider state back to
    `~/.paseo/config.json` across a restart, so a file edit the running daemon

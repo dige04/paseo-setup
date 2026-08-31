@@ -659,6 +659,28 @@
       <code>unavailable · Disabled</code>, trong khi cả ba provider vai vẫn
       <code>available · Enabled</code>. Đã sửa lại hướng dẫn trong README và trình cài đặt.
     </p>
+    <p class="dl">Rồi 40 phút sau nó tự bật lại — D1 không phải cơ chế</p>
+    <p>
+      Đo lúc 01:37: config quay lại <code>enabled: true</code>, provider lại Enabled. Daemon
+      <strong>không</strong> restart — cùng pid, uptime liên tục. Cũng không phải timer: sau khi
+      tắt lại, theo dõi liên tục 90 giây vẫn nguyên. Log ngay tại thời điểm ghi:
+      <code>provider-snapshot-manager · Failed to refresh provider snapshot</code>, kèm app Paseo
+      kết nối lại (<code>origin: paseo://app</code>).
+    </p>
+    <p>
+      Tức là <code>provider-snapshot-manager</code> ghi nguyên bộ provider ngược ra file mỗi lần nó
+      refresh, và provider built-in bị dựng lại thành enabled. Nó refresh khi daemon khởi động
+      <em>và</em> khi app kết nối lại. Nên bản sửa chỉ sống tới lần refresh kế tiếp — một sự kiện
+      không có gì trong bộ này điều khiển hay nhìn thấy được.
+    </p>
+    <p>
+      <strong>Kết luận thay cho những gì tôi viết một tiếng trước:</strong>
+      <code>"claude": {"enabled": false}</code> là một <em>sở thích</em>, không phải cơ chế. Không bền,
+      mất im lặng, không cái gì ở đây phát hiện được. Nên <strong>D1 như thiết kế không đạt được mục
+      tiêu của nó</strong>. Cái còn lại là kỷ luật lúc mở phiên — mở Lead thường trực trên
+      <code>claude-lead</code> — cộng với <strong>phát hiện</strong>, thứ graph đã làm được sẵn. Đúng
+      như mọi chỗ khác trong bộ này khi đụng tới một seat hook không với tới.
+    </p>
     <p class="dl">Nó mua được gì — và không mua được gì</p>
     <p>
       Nó tắt <strong>chỗ ngồi</strong>, không tắt agent đang chạy: Lead thường trực khởi động từ chỗ

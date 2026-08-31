@@ -71,13 +71,53 @@ disabled base and keep working, which the example config and
 `test/installer-contract.test.mjs` asserted but nothing had ever run on a host.
 Now measured.
 
-**What this does and does not buy.** It disables the **seat**, not a running
-agent: the standing Lead started on bare `claude` keeps running unaffected. So D1
-is only half a mechanism — it stops the next role-less session from *starting*,
-and the standing Lead must still be started on `claude-lead` explicitly. There is
-no config that forces that; it is a dispatch discipline the graph can detect
-(`enforcementClass` already separates `pack-enforced` from unenforced seats) but
-not prevent.
+### It does not stay disabled — D1 is not a mechanism at all (2026-09-01, 01:37)
+
+Forty minutes after the reload, `agents.providers.claude` was `{"enabled": true}`
+again and `paseo provider ls` reported `available  Enabled`.
+
+The daemon had **not** restarted: same pid `71036`, uptime continuous across the
+flip. Nor is it a timer — after re-disabling, 90 seconds of continuous
+observation held at `false`/`Disabled` with no rewrite, and `provider ls`,
+`ls -g` and `daemon status` all left the file's mtime untouched.
+
+The log at the moment of the write:
+
+```
+01:34:48  provider-snapshot-manager  Failed to refresh provider snapshot
+01:34:50  session  Agent resumed from persistence   origin: "paseo://app"
+```
+
+`provider-snapshot-manager` writes the whole provider set back to `config.json`
+whenever it refreshes, and built-in providers are materialised as
+`enabled: true`. It refreshes on daemon start **and** when the desktop app
+reconnects. So the edit survives exactly until the next snapshot refresh, which
+is an event nothing in this pack controls or can observe.
+
+**Conclusion, replacing what this file said an hour earlier.**
+`"claude": {"enabled": false}` is a **preference, not a mechanism**. It is not
+durable, its reversion is silent, and no check here notices. Two corrections
+follow:
+
+- The pack must stop presenting it as a guard. `README.md` and `install.sh` now
+  say preference, with the measurement.
+- **D1 as designed does not achieve its goal.** The goal was that the standing
+  Lead sits on a hooked seat so create-time labels fire. No config forces that:
+  the disable only stops a *new* role-less session from starting, it never moves a
+  running agent, and it reverts on its own. What is left is a dispatch discipline
+  — start the standing Lead on `claude-lead` — plus **detection**, which the graph
+  already supports (`enforcementClass` separates `pack-enforced` from unenforced
+  seats). That is the honest form of D1, and it is detection, like everything else
+  in this pack that touches a seat the hook cannot reach.
+
+**Separate host issue found while measuring, not caused by any of this.** The same
+`provider-snapshot-manager` failed 14 times with `Timed out waiting for OMP to
+become ready`, alongside 14× `Claude query operation did not settle cleanly
+(ProcessTransport is not ready for writing)` and 30× OpenCode `ECONNREFUSED
+127.0.0.1:49311`. All 14 OMP timeouts fall in a two-hour window with none in the
+preceding eleven hours. A failed refresh flips providers to `unavailable`, which
+is what "providers keep turning themselves off" looks like from the app. It is an
+OMP readiness problem and it degrades every provider at once, not just `claude`.
 
 **Residual.** ~20 idle agents currently sit on the bare `claude` provider. Whether
 they resume after the base is disabled is untested. If resuming one matters, do it
