@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AXI adoption — paseo-claude-team</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--color-muted); margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400; letter-spacing: -0.02em; line-height: 1.15;
+      color: var(--color-ink); margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Quadrant · Diagram Design</p>
+    <h1>Which AXI principles the harness actually adopted</h1>
+
+    <svg viewBox="0 0 1000 660" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="axi-matrix-title axi-matrix-desc">
+      <title id="axi-matrix-title">AXI adoption matrix for paseo-claude-team</title>
+      <desc id="axi-matrix-desc">The ten AXI CLI conventions positioned by measured value to an agent against compatibility with the harness fail-closed rule; six were adopted, two were rejected on cost, and two were rejected on safety and replaced by the opposite rule.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2d3142"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- axis cross -->
+      <line x1="80" y1="300" x2="920" y2="300" stroke="#2d3142" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="500" y1="540" x2="500" y2="60" stroke="#2d3142" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- axis labels: one word per arrow tip -->
+      <text x="936" y="300" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start" dominant-baseline="middle" letter-spacing="0.18em">VALUE</text>
+      <text x="500" y="44" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.18em">FAIL-CLOSED</text>
+
+      <!-- quadrant tags -->
+      <text x="904" y="84" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.18em">ADOPTED</text>
+      <text x="96" y="84" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start" letter-spacing="0.18em">NO-OP HERE</text>
+      <text x="904" y="528" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.18em">INVERTED</text>
+      <text x="96" y="528" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start" letter-spacing="0.18em">REJECTED ON COST</text>
+
+      <!-- ADOPTED quadrant -->
+      <circle cx="852" cy="96" r="4" fill="#eb6c36"/>
+      <text x="840" y="100" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="end"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#eb6c36">P4</tspan> Pre-computed aggregates</text>
+
+      <circle cx="636" cy="144" r="4" fill="#2d3142"/>
+      <text x="648" y="148" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P2</tspan> Minimal default schema</text>
+
+      <circle cx="792" cy="192" r="4" fill="#2d3142"/>
+      <text x="780" y="196" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="end"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P3</tspan> Truncation with a signal</text>
+
+      <circle cx="872" cy="240" r="4" fill="#eb6c36"/>
+      <text x="860" y="244" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="end"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#eb6c36">P6</tspan> Structured errors + exit codes</text>
+
+      <circle cx="560" cy="272" r="4" fill="#2d3142"/>
+      <text x="572" y="276" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P10</tspan> Consistent help</text>
+
+      <!-- NO-OP quadrant -->
+      <circle cx="320" cy="168" r="4" fill="#2d3142"/>
+      <text x="332" y="172" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P8</tspan> Content first</text>
+
+      <!-- INVERTED quadrant -->
+      <circle cx="800" cy="384" r="4" fill="#2d3142"/>
+      <text x="788" y="388" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="end"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P5</tspan> Definitive empty state</text>
+
+      <circle cx="716" cy="464" r="4" fill="#2d3142"/>
+      <text x="704" y="468" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="end"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P7</tspan> Ambient context</text>
+
+      <!-- REJECTED quadrant -->
+      <circle cx="300" cy="400" r="4" fill="#2d3142"/>
+      <text x="312" y="404" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P1</tspan> TOON output</text>
+
+      <circle cx="232" cy="464" r="4" fill="#2d3142"/>
+      <text x="244" y="468" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P9</tspan> help[] in payload</text>
+
+      <!-- editorial aside -->
+      <text x="904" y="560" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="end">valuable, and still refused — the harness ships the opposite rule</text>
+
+      <!-- legend -->
+      <line x1="80" y1="600" x2="920" y2="600" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="80" y="620" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+      <circle cx="176" cy="616" r="4" fill="#eb6c36"/>
+      <text x="188" y="620" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">LOAD-BEARING IN PRODUCTION</text>
+      <circle cx="456" cy="616" r="4" fill="#2d3142"/>
+      <text x="468" y="620" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">EVALUATED PRINCIPLE</text>
+      <text x="920" y="620" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">10 PRINCIPLES · 4 VERDICTS</text>
+    </svg>
+  </div>
+</body>
+</html>
