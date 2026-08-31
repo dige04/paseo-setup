@@ -86,7 +86,11 @@
   .decision { background:var(--paper2); border:1px solid var(--rule); border-left:3px solid var(--accent);
               border-radius:0 6px 6px 0; padding:1.25rem 1.375rem; margin:1rem 0; }
   .decision h4 { font-size:0.9375rem; font-weight:600; margin-bottom:0.375rem; }
-  .decision p { font-size:0.875rem; color:var(--muted); margin:0; max-width:none; }
+  .decision p { font-size:0.875rem; color:var(--muted); margin:0 0 0.625rem; max-width:none; }
+  .decision p:last-child { margin-bottom:0; }
+  .decision p.dl { font-family:var(--mono); font-size:0.625rem; letter-spacing:0.14em;
+                   text-transform:uppercase; color:var(--soft); margin:1rem 0 0.375rem; }
+  .decision p.dl:first-of-type { margin-top:0.75rem; }
 
   footer { margin-top:4.5rem; padding-top:1.25rem; border-top:1px solid var(--rule);
            font-family:var(--mono); font-size:0.6875rem; color:var(--soft); letter-spacing:0.06em;
@@ -612,18 +616,91 @@
     </tbody>
   </table>
 
-  <h2><span class="num">§ 10</span>Cần quyết</h2>
+  <h2><span class="num">§ 10</span>Cần anh quyết</h2>
+  <p>
+    Ba việc dưới đây tôi không tự quyết được: một cái là thay đổi cấu hình vận hành,
+    một cái là chọn thứ tự ưu tiên, một cái là đánh đổi bảo mật. Mỗi việc viết theo cùng
+    một khuôn: <em>chuyện gì đang xảy ra · chọn gì · giá bao nhiêu · tôi đề xuất gì</em>.
+  </p>
+
   <div class="decision">
-    <h4>1 · Cho Lead thường trực chạy trên provider <code>claude-lead</code></h4>
-    <p>Một dòng config. Cổng gắn nhãn lúc tạo agent bind theo <em>người tạo</em>, nên đổi cái này chuyển độ phủ từ 0% lên mọi agent con mà Lead sinh ra, kể cả agent omp. Rẻ nhất trong danh sách, và mở đường cho A1 có răng.</p>
+    <h4>1 · Đổi chỗ ngồi của Lead — 1 dòng cấu hình</h4>
+    <p class="dl">Chuyện gì đang xảy ra</p>
+    <p>
+      Mỗi khi Lead tạo một agent con, hệ thống muốn dán nhãn lên agent đó: <em>ai tạo, thuộc
+      project nào, làm vai gì</em>. Nhãn này là thứ để sau đó biết agent nào là của mình,
+      agent nào đang ghi file, agent nào bỏ quên cần dọn.
+    </p>
+    <p>
+      Nhưng cái cổng dán nhãn chỉ bật lên nếu <strong>bản thân người tạo</strong> đang ngồi ở
+      một chỗ có gắn hook. Hôm nay Lead ngồi ở chỗ trống — nên cổng không bao giờ nổ, và mọi
+      agent con sinh ra đều <strong>không có nhãn</strong>. Kết quả cụ thể: 9 agent vô danh
+      trong hệ thống, cổng kiểm tra buổi sáng nhìn vào chỉ biết nói “không xác định”.
+    </p>
+    <p class="dl">Chọn gì · Giá</p>
+    <p>
+      Cho Lead ngồi vào chỗ có hook (<code>claude-lead</code>) — sửa một dòng trong file cấu hình.
+      Từ đó mọi agent Lead sinh ra <strong>bắt buộc</strong> có nhãn, kể cả agent chạy trên
+      provider ngoài. Không cần sửa code, không cần deploy. Sai thì đổi lại trong 10 giây.
+    </p>
+    <p class="dl">Tôi đề xuất</p>
+    <p><strong>Làm ngay.</strong> Rẻ nhất trong ba việc, và nó là điều kiện để cổng kiểm tra buổi sáng thật sự có tác dụng chứ không chỉ báo “không biết”.</p>
   </div>
+
   <div class="decision">
-    <h4>2 · Ưu tiên tiếp theo: wake tier hay đo throughput fleet?</h4>
-    <p>Wake tier đóng mảnh quan sát cuối (agent treo hiện chỉ bị <em>nghi ngờ</em>, không ai đánh thức). Đo fleet trả lời được câu “bao nhiêu PR/ngày là thật”. Không làm song song được nếu muốn giữ chất lượng vòng review.</p>
+    <h4>2 · Việc tiếp theo làm cái nào trước</h4>
+    <p class="dl">Chuyện gì đang xảy ra</p>
+    <p>Còn hai mảng lớn, cả hai đều cần cùng một thứ khan hiếm: thời gian theo dõi của người và số agent chạy song song. Làm cùng lúc thì cả hai đều ra kết quả nhiễu.</p>
+    <p class="dl">Chọn gì</p>
+    <p>
+      <strong>A. Cơ chế đánh thức.</strong> Hiện nếu một agent bị treo — đứng im, không báo lỗi,
+      không báo xong — hệ thống chỉ ghi nhận “đáng ngờ” rồi thôi. Không ai đánh thức nó, không
+      ai báo cho người. Nó nằm đó tới khi có người tình cờ mở ra xem. Làm mảng này = hệ thống
+      tự phát hiện agent chết và tự báo.
+    </p>
+    <p>
+      <strong>B. Đo năng suất thật.</strong> Con số “bao nhiêu PR một ngày” hiện mới là tính toán
+      trên giấy. Đo thật = chạy một đợt có kiểm soát rồi đếm cái thực sự ra được.
+    </p>
+    <p class="dl">Tôi đề xuất</p>
+    <p>
+      <strong>Làm A trước.</strong> Lý do đơn giản: đo năng suất trong lúc chưa phát hiện được agent
+      treo thì con số đo ra không tin được — không biết đợt đó có bao nhiêu agent chết giữa chừng
+      mà không ai hay. Sửa mắt trước, đo sau.
+    </p>
   </div>
+
   <div class="decision">
-    <h4>3 · Có ngăn thật seat non-claude không, hay chấp nhận chỉ phát hiện?</h4>
-    <p>Ngăn thật cần ràng buộc tầng daemon — hoặc dùng bản fork có sẵn tính năng đó, tức đổi luôn chuỗi tin cậy nguồn. Đây là đánh đổi bảo mật, thuộc quyền anh, tôi không tự quyết.</p>
+    <h4>3 · Agent chạy trên provider ngoài: ngăn thật, hay chỉ phát hiện?</h4>
+    <p class="dl">Chuyện gì đang xảy ra</p>
+    <p>
+      Đã đo được: một agent chạy trên provider ngoài (omp/Gemini) <strong>nhìn thấy toàn bộ bảng
+      điều khiển</strong> của hệ thống — nó có thể tạo agent mới, xoá workspace, huỷ agent khác.
+      Hiện chỉ có một câu trong prompt bảo nó đừng làm.
+    </p>
+    <p>
+      Nếu nó lệch khỏi việc được giao, mình <strong>phát hiện được sau</strong> (cổng kiểm tra sẽ
+      báo) nhưng <strong>không chặn được lúc đó</strong>. Giống như có camera nhưng không có khoá cửa.
+    </p>
+    <p class="dl">Chọn gì · Giá</p>
+    <p>
+      <strong>A. Giữ nguyên, chỉ giao việc đọc.</strong> Provider ngoài chỉ dùng làm scout đi soi code,
+      không giao việc ghi. Rủi ro thấp vì scout không có lý do gì để tạo agent. Giá: 0.
+    </p>
+    <p>
+      <strong>B. Dùng bản fork có sẵn tính năng chặn.</strong> Được khoá cửa thật. Giá: đang chạy bản
+      chính thức, chuyển sang bản do một cá nhân sửa — tức đổi luôn chuỗi tin cậy của nền tảng.
+      Đây mới là phần đắt, không phải công sức cài đặt.
+    </p>
+    <p>
+      <strong>C. Đề nghị nền tảng bổ sung tính năng.</strong> Đúng đắn nhất, chậm nhất, không chắc được duyệt.
+    </p>
+    <p class="dl">Tôi đề xuất</p>
+    <p>
+      <strong>A bây giờ, C gửi song song.</strong> Chỉ cân nhắc B khi nào thật sự cần giao việc
+      <em>ghi file</em> cho provider ngoài — hiện chưa cần. Đây là đánh đổi bảo mật nên tôi nêu
+      lựa chọn chứ không tự quyết.
+    </p>
   </div>
 
   <footer>
