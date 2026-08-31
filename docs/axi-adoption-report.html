@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXI trong harness — dùng bộ nào, ở đâu, bộ nào bị từ chối</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --paper:  #f5f5f5;
+    --paper2: #ffffff;
+    --ink:    #2d3142;
+    --muted:  #4f5d75;
+    --soft:   #7a8399;
+    --rule:   rgba(45,49,66,0.12);
+    --accent: #eb6c36;
+    --accent-tint: rgba(235,108,54,0.08);
+    --link:   #2e5aa8;
+    --sans:   'Geist', system-ui, sans-serif;
+    --serif:  'Instrument Serif', serif;
+    --mono:   'Geist Mono', ui-monospace, monospace;
+  }
+  body {
+    font-family: var(--sans); background: var(--paper); color: var(--ink);
+    line-height: 1.6; padding: 4rem 2rem 6rem;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.66rem; font-weight: 500;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 0.5rem;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 400; letter-spacing: -0.02em;
+    font-size: clamp(2rem, 3.6vw + 1rem, 3rem); line-height: 1.1; margin-bottom: 1rem;
+  }
+  .lede { font-size: 1.0625rem; color: var(--muted); max-width: 68ch; }
+
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 1.5rem;
+    font-family: var(--mono); font-size: 0.6875rem; color: var(--soft);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+    padding: 0.875rem 0; margin: 2rem 0 3.5rem;
+  }
+  .meta b { color: var(--ink); font-weight: 500; }
+
+  h2 {
+    font-family: var(--serif); font-weight: 400; font-size: 1.75rem;
+    letter-spacing: -0.01em; margin: 3.5rem 0 0.5rem;
+  }
+  h2 .num {
+    font-family: var(--mono); font-size: 0.6875rem; color: var(--soft);
+    letter-spacing: 0.18em; display: block; margin-bottom: 0.375rem; font-weight: 500;
+  }
+  h3 { font-size: 1rem; font-weight: 600; margin: 2rem 0 0.5rem; }
+  p { max-width: 72ch; margin-bottom: 0.875rem; }
+  p.tight { margin-bottom: 0.5rem; }
+  strong { font-weight: 600; }
+  code {
+    font-family: var(--mono); font-size: 0.8125em;
+    background: rgba(45,49,66,0.05); padding: 0.1em 0.35em; border-radius: 3px;
+  }
+  a { color: var(--link); }
+
+  .cards { display: grid; grid-template-columns: 1.15fr 1fr 0.95fr; gap: 1rem; margin: 1.5rem 0 0; }
+  .card {
+    background: var(--paper2); border: 1px solid var(--rule); border-radius: 6px; padding: 1.25rem;
+  }
+  .card .eyebrow { margin-bottom: 0.625rem; }
+  .card-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .dot.coral { background: var(--accent); }
+  .dot.ink   { background: var(--ink); }
+  .dot.muted { background: var(--muted); }
+  .card h4 { font-size: 0.9375rem; font-weight: 600; }
+  .card p { font-size: 0.875rem; color: var(--muted); margin: 0; }
+
+  table { border-collapse: collapse; width: 100%; margin: 1.25rem 0 0.5rem; font-size: 0.875rem; }
+  th {
+    text-align: left; font-family: var(--mono); font-size: 0.625rem; font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+    border-bottom: 1px solid var(--ink); padding: 0 0.75rem 0.5rem 0;
+  }
+  td { border-bottom: 1px solid var(--rule); padding: 0.625rem 0.75rem 0.625rem 0; vertical-align: top; }
+  td:last-child, th:last-child { padding-right: 0; }
+  tr.focal td { background: var(--accent-tint); }
+  .tag {
+    font-family: var(--mono); font-size: 0.625rem; letter-spacing: 0.1em;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .tag.yes  { color: var(--accent); font-weight: 600; }
+  .tag.ok   { color: var(--ink); }
+  .tag.no   { color: var(--soft); }
+  .tag.inv  { color: var(--accent); font-weight: 600; }
+  .mono { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
+  .no-mark { color: var(--soft); }
+
+  figure { margin: 2rem 0 0; }
+  figure svg { width: 100%; height: auto; display: block; background: var(--paper); }
+  figcaption {
+    font-family: var(--mono); font-size: 0.6875rem; color: var(--soft);
+    letter-spacing: 0.06em; padding-top: 0.75rem; border-top: 1px solid var(--rule); margin-top: 0.5rem;
+  }
+  figcaption b { color: var(--muted); font-weight: 500; }
+
+  pre {
+    background: var(--paper2); border: 1px solid var(--rule); border-radius: 6px;
+    padding: 1rem 1.125rem; overflow-x: auto; margin: 1rem 0;
+    font-family: var(--mono); font-size: 0.8125rem; line-height: 1.65; color: var(--ink);
+  }
+  pre .c { color: var(--soft); }
+  pre .a { color: var(--accent); }
+
+  .uc { border-left: 2px solid var(--rule); padding-left: 1.25rem; margin: 1.75rem 0; }
+  .uc.focal { border-left-color: var(--accent); }
+  .uc h3 { margin-top: 0; }
+  .uc h3 span { font-family: var(--mono); font-size: 0.6875rem; color: var(--soft); letter-spacing: 0.14em; margin-right: 0.5rem; }
+
+  .aside {
+    font-family: var(--serif); font-style: italic; font-size: 1.125rem;
+    color: var(--muted); border-left: 2px solid var(--accent);
+    padding: 0.25rem 0 0.25rem 1.25rem; margin: 1.5rem 0; max-width: 60ch;
+  }
+
+  footer {
+    margin-top: 4.5rem; padding-top: 1.25rem; border-top: 1px solid var(--rule);
+    font-family: var(--mono); font-size: 0.6875rem; color: var(--soft);
+    letter-spacing: 0.06em; display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: space-between;
+  }
+  @media (max-width: 860px) { .cards { grid-template-columns: 1fr; } body { padding: 2.5rem 1.25rem 4rem; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">Báo cáo kỹ thuật · paseo-claude-team</p>
+  <h1>AXI trong harness: dùng bộ nào, ở đâu,<br>và bộ nào bị từ chối</h1>
+  <p class="lede">
+    AXI là 10 quy ước output CLI dành cho agent. Harness này không “AXI-compliant”.
+    Nó lấy 2 nguyên tắc làm xương sống, 4 làm tiện ích, từ chối 2 vì đo được là lỗ,
+    và <strong>đảo ngược 2</strong> vì fail-closed quan trọng hơn gọn gàng.
+  </p>
+
+  <div class="meta">
+    <span>Commit <b>54b9483</b></span>
+    <span>Manifest <b>sha256:07bb06f2</b></span>
+    <span>Governed <b>46 file</b></span>
+    <span>Suite <b>41/41</b></span>
+    <span>Ngày <b>2026-08-31</b></span>
+  </div>
+
+  <h2><span class="num">§ 0</span>Ba câu tóm tắt</h2>
+  <div class="cards">
+    <div class="card">
+      <p class="eyebrow">Xương sống</p>
+      <div class="card-head"><span class="dot coral"></span><h4>2 nguyên tắc</h4></div>
+      <p>P4 (tổng hợp tính sẵn) và P6 (lỗi có cấu trúc + exit code) có mặt ở <strong>9/11 script</strong>, mỗi cái đều có test giết.</p>
+    </div>
+    <div class="card">
+      <p class="eyebrow">Từ chối vì chi phí</p>
+      <div class="card-head"><span class="dot muted"></span><h4>2 nguyên tắc</h4></div>
+      <p>TOON và <code>help[]</code> nhét trong payload — bỏ sau khi đo trên chính corpus này, không phải theo cảm tính.</p>
+    </div>
+    <div class="card">
+      <p class="eyebrow">Đảo ngược vì an toàn</p>
+      <div class="card-head"><span class="dot coral"></span><h4>2 nguyên tắc</h4></div>
+      <p>P5 “empty là câu trả lời dứt khoát” trở thành <strong>empty = vi phạm, exit 3</strong>. Đây là phần đáng kể nhất.</p>
+    </div>
+  </div>
+
+  <h2><span class="num">§ 1</span>Verdict 10 nguyên tắc</h2>
+  <table>
+    <thead>
+      <tr><th style="width:3rem">#</th><th style="width:20rem">Nguyên tắc AXI</th><th style="width:11rem">Verdict</th><th>Bằng chứng sống</th></tr>
+    </thead>
+    <tbody>
+      <tr class="focal">
+        <td class="mono">P4</td><td><strong>Tổng hợp tính sẵn</strong> — agent không phải tự đếm</td>
+        <td class="tag yes">Dùng · xương sống</td>
+        <td><code>--assert</code> trả <code>meta.scan {listedTotal:122, scopedTotal:2, rendered, truncated, uninspected}</code></td>
+      </tr>
+      <tr class="focal">
+        <td class="mono">P6</td><td><strong>Lỗi có cấu trúc + exit code</strong></td>
+        <td class="tag yes">Dùng · xương sống</td>
+        <td>6 tool trả envelope + <code>exit 2</code>; <code>--assert</code> thêm <code>exit 3</code> = có vi phạm</td>
+      </tr>
+      <tr>
+        <td class="mono">P3</td><td>Cắt bớt nhưng có tín hiệu</td>
+        <td class="tag ok">Dùng</td>
+        <td><code>cwdUnresolvedDetail</code> cắt ở 20 kèm <code>cwdUnresolved: 21</code> — số đếm <em>là</em> tín hiệu; <code>eod-digest</code> cap 200 dòng + dòng <code>Truncation:</code></td>
+      </tr>
+      <tr>
+        <td class="mono">P2</td><td>Schema mặc định tối thiểu</td>
+        <td class="tag ok">Dùng · qua cửa khác</td>
+        <td><code>--assert</code> là projection tối thiểu thay vì đổ nguyên React Flow layout cho agent</td>
+      </tr>
+      <tr>
+        <td class="mono">P10</td><td>Help nhất quán</td>
+        <td class="tag ok">Dùng một phần</td>
+        <td><code>--help</code> ở governance-graph, ultra-review-report, ocr-review, eod-digest</td>
+      </tr>
+      <tr>
+        <td class="mono">P8</td><td>Nội dung trước</td>
+        <td class="tag ok">Dùng một phần</td>
+        <td>Report/digest đặt decision lên đầu, accounting xuống footer</td>
+      </tr>
+      <tr>
+        <td class="mono">P1</td><td>Output TOON</td>
+        <td class="tag no">Từ chối · chi phí</td>
+        <td>Đo: thua JSON trên chính corpus này</td>
+      </tr>
+      <tr>
+        <td class="mono">P9</td><td><code>help[]</code> nhúng trong payload</td>
+        <td class="tag no">Từ chối · chi phí</td>
+        <td>Noise mỗi lần gọi; help sống ở <code>--help</code></td>
+      </tr>
+      <tr class="focal">
+        <td class="mono">P5</td><td><strong>Empty state dứt khoát → exit 0</strong></td>
+        <td class="tag inv">Đảo ngược · an toàn</td>
+        <td>A6: <code>scopedTotal===0 &amp;&amp; listedTotal&gt;0</code> ⇒ <strong>vi phạm, exit 3</strong></td>
+      </tr>
+      <tr>
+        <td class="mono">P7</td><td>Ambient context qua SessionStart</td>
+        <td class="tag inv">Từ chối · an toàn</td>
+        <td>Bản hook mạnh hơn: authority đọc từ V3 brief <em>mỗi lượt</em>, không inject một lần</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <figure>
+    <svg viewBox="0 0 1000 660" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="axi-matrix-title axi-matrix-desc">
+            <title id="axi-matrix-title">AXI adoption matrix for paseo-claude-team</title>
+            <desc id="axi-matrix-desc">The ten AXI CLI conventions positioned by measured value to an agent against compatibility with the harness fail-closed rule; six were adopted, two were rejected on cost, and two were rejected on safety and replaced by the opposite rule.</desc>
+            <defs>
+              <marker id="arrow-d1" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2d3142"/></marker>
+            </defs>
+      
+            
+      
+            <!-- axis cross -->
+            <line x1="80" y1="300" x2="920" y2="300" stroke="#2d3142" stroke-width="1" marker-end="url(#arrow-d1)"/>
+            <line x1="500" y1="540" x2="500" y2="60" stroke="#2d3142" stroke-width="1" marker-end="url(#arrow-d1)"/>
+      
+            <!-- axis labels: one word per arrow tip -->
+            <text x="936" y="300" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start" dominant-baseline="middle" letter-spacing="0.18em">VALUE</text>
+            <text x="500" y="44" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.18em">FAIL-CLOSED</text>
+      
+            <!-- quadrant tags -->
+            <text x="904" y="84" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.18em">ADOPTED</text>
+            <text x="96" y="84" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start" letter-spacing="0.18em">NO-OP HERE</text>
+            <text x="904" y="528" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.18em">INVERTED</text>
+            <text x="96" y="528" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start" letter-spacing="0.18em">REJECTED ON COST</text>
+      
+            <!-- ADOPTED quadrant -->
+            <circle cx="852" cy="96" r="4" fill="#eb6c36"/>
+            <text x="840" y="100" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="end"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#eb6c36">P4</tspan> Pre-computed aggregates</text>
+      
+            <circle cx="636" cy="144" r="4" fill="#2d3142"/>
+            <text x="648" y="148" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P2</tspan> Minimal default schema</text>
+      
+            <circle cx="792" cy="192" r="4" fill="#2d3142"/>
+            <text x="780" y="196" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="end"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P3</tspan> Truncation with a signal</text>
+      
+            <circle cx="872" cy="240" r="4" fill="#eb6c36"/>
+            <text x="860" y="244" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="end"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#eb6c36">P6</tspan> Structured errors + exit codes</text>
+      
+            <circle cx="560" cy="272" r="4" fill="#2d3142"/>
+            <text x="572" y="276" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P10</tspan> Consistent help</text>
+      
+            <!-- NO-OP quadrant -->
+            <circle cx="320" cy="168" r="4" fill="#2d3142"/>
+            <text x="332" y="172" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P8</tspan> Content first</text>
+      
+            <!-- INVERTED quadrant -->
+            <circle cx="800" cy="384" r="4" fill="#2d3142"/>
+            <text x="788" y="388" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="end"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P5</tspan> Definitive empty state</text>
+      
+            <circle cx="716" cy="464" r="4" fill="#2d3142"/>
+            <text x="704" y="468" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="end"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P7</tspan> Ambient context</text>
+      
+            <!-- REJECTED quadrant -->
+            <circle cx="300" cy="400" r="4" fill="#2d3142"/>
+            <text x="312" y="404" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P1</tspan> TOON output</text>
+      
+            <circle cx="232" cy="464" r="4" fill="#2d3142"/>
+            <text x="244" y="468" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start"><tspan font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">P9</tspan> help[] in payload</text>
+      
+            <!-- editorial aside -->
+            <text x="904" y="560" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="end">valuable, and still refused — the harness ships the opposite rule</text>
+      
+            <!-- legend -->
+            <line x1="80" y1="600" x2="920" y2="600" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+            <text x="80" y="620" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+            <circle cx="176" cy="616" r="4" fill="#eb6c36"/>
+            <text x="188" y="620" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">LOAD-BEARING IN PRODUCTION</text>
+            <circle cx="456" cy="616" r="4" fill="#2d3142"/>
+            <text x="468" y="620" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">EVALUATED PRINCIPLE</text>
+            <text x="920" y="620" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">10 PRINCIPLES · 4 VERDICTS</text>
+          </svg>
+    <figcaption><b>Hình 1.</b> Vị trí = verdict. Trục dọc: tương thích fail-closed. Trục ngang: giá trị đo được cho agent. Góc dưới–phải là chỗ đắt nhất: có giá trị mà vẫn bị từ chối, vì phá bảo đảm an toàn.</figcaption>
+  </figure>
+
+  <h2><span class="num">§ 2</span>P4 + P6 nằm ở đâu</h2>
+  <p>Bảng phủ theo từng script. Ô trống là nợ thật, không giấu.</p>
+  <table>
+    <thead>
+      <tr><th style="width:16rem">Script</th><th>P4 — tổng hợp</th><th style="width:16rem">P6 — envelope + exit</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="mono">governance-graph.mjs</td><td><code>meta.scan</code> 5 trường + <code>meta.roleSweep {known, labeled, errors}</code></td><td><code>USAGE</code>→2 · violations→<strong>3</strong></td></tr>
+      <tr><td class="mono">eod-digest.mjs</td><td>Footer: <code>sources scanned 3/4 · missing 1 · malformed 0</code> + counts 6 loại</td><td><code>USAGE</code>/<code>WORKSPACE_MISSING</code>→2</td></tr>
+      <tr><td class="mono">check-report-gates.mjs</td><td><code>gate check: gated=0 pregate=3 failed=0</code></td><td><code>USAGE</code>/<code>DIR_MISSING</code>→2 · fail→1</td></tr>
+      <tr><td class="mono">ocr-review.mjs</td><td><code>discovered_count / selected_count / excluded_count</code></td><td>→2</td></tr>
+      <tr><td class="mono">ultra-review-report.mjs</td><td>Roster <code>SCOUTS_PLANNED/SUBMITTED/MISSING</code>, <code>FILES_UNREACHED</code></td><td><code>USAGE</code>→2</td></tr>
+      <tr><td class="mono">preflight.mjs</td><td><code>--version</code> → <code>{name, version, policyDigest, fileCount}</code></td><td><code>unknown_flag</code>/<code>missing_flag_value</code>→2</td></tr>
+      <tr><td class="mono">policy-digest.mjs</td><td><code>fileCount</code> + hash từng file</td><td><code>unknown_flag</code>→2 · stale→1</td></tr>
+      <tr><td class="mono">reconcile-observer.mjs</td><td><code>sources.*.ok</code>, <code>orphanScan.totalDiscovered</code></td><td class="no-mark">library — không có CLI, đúng thiết kế</td></tr>
+      <tr><td class="mono">watchdog.mjs</td><td class="no-mark">chưa có aggregate</td><td>envelope có → 2</td></tr>
+      <tr><td class="mono">model-routing.mjs</td><td class="no-mark">chưa có</td><td class="no-mark">usage text → <strong>64</strong> (lệch chuẩn)</td></tr>
+    </tbody>
+  </table>
+  <p class="mono" style="margin-top:1rem">NỢ CÒN LẠI, KHAI THẬT — watchdog chưa có denominator; model-routing exit 64 + usage text thay vì envelope. Cả hai đã ghi record-only ở pack-ship F012, không chặn dùng hằng ngày.</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="axi-contract-title axi-contract-desc">
+            <title id="axi-contract-title">AXI-shaped CLI contract for governance-graph --assert</title>
+            <desc id="axi-contract-desc">An agent invokes the governance-graph assert command, which validates its own arguments before any work, queries the Paseo daemon with a fixed number of calls, computes aggregates with truncation signalled, and returns either a clean envelope with exit code zero or a violation envelope with exit code three.</desc>
+            <defs>
+              <marker id="arrow-d2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+              <marker id="arrow-accent-d2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+              <marker id="arrow-link-d2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+            </defs>
+      
+            
+      
+            <!-- lifelines -->
+            <line x1="180" y1="108" x2="180" y2="668" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+            <line x1="500" y1="108" x2="500" y2="668" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+            <line x1="840" y1="108" x2="840" y2="668" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+      
+            <!-- activation bars -->
+            <rect x="496" y="160" width="8" height="464" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+            <rect x="836" y="264" width="8" height="40" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+            <rect x="836" y="344" width="8" height="40" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+      
+            <!-- messages -->
+            <line x1="188" y1="160" x2="488" y2="160" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-d2)"/>
+            <rect x="264" y="140" width="152" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="340" y="149" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">--ASSERT --CWD SCOPE</text>
+      
+            <path d="M508,200 H556 Q564,200 564,208 V216 Q564,224 556,224 H508" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-d2)"/>
+            <text x="576" y="208" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start">Validate argv first</text>
+            <text x="576" y="224" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start" letter-spacing="0.06em">UNKNOWN FLAG → EXIT 2 · {OK:FALSE, CODE}</text>
+      
+            <line x1="508" y1="264" x2="828" y2="264" stroke="#2e5aa8" stroke-width="1" marker-end="url(#arrow-link-d2)"/>
+            <rect x="608" y="244" width="120" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="668" y="253" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">PASEO LS -G --JSON</text>
+      
+            <line x1="828" y1="304" x2="508" y2="304" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-d2)"/>
+            <rect x="616" y="284" width="104" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="668" y="293" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">122 LISTED AGENTS</text>
+      
+            <line x1="508" y1="344" x2="828" y2="344" stroke="#2e5aa8" stroke-width="1" marker-end="url(#arrow-link-d2)"/>
+            <rect x="600" y="324" width="136" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="668" y="333" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">LS --LABEL ROLE · 3 FIXED</text>
+      
+            <line x1="828" y1="384" x2="508" y2="384" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-d2)"/>
+            <rect x="608" y="364" width="120" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="668" y="373" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MEMBERSHIP OR ERROR</text>
+      
+            <path d="M508,424 H556 Q564,424 564,432 V440 Q564,448 556,448 H508" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-d2)"/>
+            <text x="576" y="432" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start">Aggregate before reply</text>
+            <text x="576" y="448" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start" letter-spacing="0.06em">META.SCAN · DETAIL SLICED @20 + COUNT</text>
+      
+            <!-- alt fragment -->
+            <rect x="168" y="488" width="344" height="152" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+            <rect x="168" y="488" width="40" height="16" rx="2" fill="#f5f5f5" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+            <text x="188" y="500" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">ALT</text>
+      
+            <text x="180" y="520" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.04em">[no violations]</text>
+            <line x1="488" y1="552" x2="192" y2="552" stroke="#eb6c36" stroke-width="1" marker-end="url(#arrow-accent-d2)"/>
+            <rect x="272" y="532" width="136" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="340" y="541" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">AGGREGATES · EXIT 0</text>
+      
+            <line x1="176" y1="576" x2="504" y2="576" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      
+            <text x="180" y="600" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.04em">[violations found]</text>
+            <line x1="488" y1="624" x2="192" y2="624" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-d2)"/>
+            <rect x="256" y="604" width="168" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="340" y="613" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">VIOLATIONS + EVIDENCE · EXIT 3</text>
+      
+            <!-- actors (drawn after arrows) -->
+            <rect x="100" y="60" width="160" height="48" rx="6" fill="#f5f5f5"/>
+            <rect x="100" y="60" width="160" height="48" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+            <text x="180" y="82" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Lead agent</text>
+            <text x="180" y="98" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">MORNING GATE</text>
+      
+            <rect x="420" y="60" width="160" height="48" rx="6" fill="#f5f5f5"/>
+            <rect x="420" y="60" width="160" height="48" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+            <text x="500" y="82" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">governance-graph</text>
+            <text x="500" y="98" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">--ASSERT</text>
+      
+            <rect x="760" y="60" width="160" height="48" rx="6" fill="#f5f5f5"/>
+            <rect x="760" y="60" width="160" height="48" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+            <text x="840" y="82" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Paseo daemon</text>
+            <text x="840" y="98" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">LOCAL · READ-ONLY</text>
+      
+            <!-- legend -->
+            <line x1="80" y1="700" x2="920" y2="700" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+            <text x="80" y="720" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+            <line x1="180" y1="716" x2="212" y2="716" stroke="#eb6c36" stroke-width="1"/>
+            <text x="224" y="720" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">HAPPY PATH</text>
+            <line x1="352" y1="716" x2="384" y2="716" stroke="#2e5aa8" stroke-width="1"/>
+            <text x="396" y="720" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">DAEMON CALL</text>
+            <line x1="528" y1="716" x2="560" y2="716" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4"/>
+            <text x="572" y="720" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">RETURN</text>
+            <text x="920" y="720" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">EXIT 0 · 2 · 3</text>
+          </svg>
+    <figcaption><b>Hình 2.</b> Một lần gọi, ba exit code. Argv được kiểm <em>trước</em> mọi công việc (P6); số lần gọi daemon là cố định; tổng hợp tính xong mới trả lời (P4); chi tiết cắt ở 20 nhưng số đếm đi kèm (P3).</figcaption>
+  </figure>
+
+  <h2><span class="num">§ 3</span>Chỗ quan trọng nhất: P5 bị đảo ngược</h2>
+  <p>
+    AXI nói: <em>empty state phải dứt khoát</em> — trả rỗng, exit 0, đừng bắt agent đoán.
+    Với một CLI tra cứu thì đúng. Với <strong>một cổng fail-closed</strong> thì đó là fail-open.
+  </p>
+  <p>Cùng một input — scan trả 0 agent trong scope — hai policy ra hai kết luận:</p>
+<pre><span class="c">AXI P5     :</span> rỗng ⇒ đó là câu trả lời          ⇒ exit 0 ⇒ "topology sạch"
+<span class="a">Harness A6 :</span> rỗng NHƯNG listedTotal=122       ⇒ exit 3 ⇒ scope sai, không phải sạch</pre>
+  <p>
+    Câu đang nằm trong code: <em>“an empty scan is not a clean topology — check the scope
+    spelling, or use <code>--all</code>”</em>. Gõ nhầm <code>--cwd</code> mà cổng sáng vẫn
+    xanh là đúng kiểu lỗi harness sinh ra để chặn.
+  </p>
+  <p>
+    Cùng logic đó áp cho P7: bản AXI inject ngữ cảnh <strong>một lần</strong> lúc SessionStart;
+    hook ở đây đọc authority từ V3 brief <strong>mỗi lượt</strong> — brief cũ không cấp quyền cho
+    lượt mới. Giữ bản mạnh hơn.
+  </p>
+  <p class="aside">Một scan của hư không không bao giờ được đọc thành “sạch”.</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 680" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="axi-inversion-title axi-inversion-desc">
+            <title id="axi-inversion-title">AXI principle 5 inverted into a fail-closed rule</title>
+            <desc id="axi-inversion-desc">The same empty scan result evaluated under two policies: AXI treats a definitive empty state as a clean exit zero, while the harness treats a scope that matched none of the listed agents as a topology violation with exit code three.</desc>
+            <defs>
+              <marker id="arrow-d3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+            </defs>
+      
+            
+      
+            <!-- connectors first -->
+            <path d="M476,112 V144 Q476,152 468,152 H268 Q260,152 260,160 V184" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-d3)"/>
+            <path d="M524,112 V144 Q524,152 532,152 H732 Q740,152 740,160 V184" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-d3)"/>
+      
+            <line x1="260" y1="248" x2="260" y2="280" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-d3)"/>
+            <line x1="740" y1="248" x2="740" y2="280" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-d3)"/>
+            <line x1="260" y1="344" x2="260" y2="376" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-d3)"/>
+            <line x1="740" y1="344" x2="740" y2="376" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-d3)"/>
+            <line x1="260" y1="440" x2="260" y2="512" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-d3)"/>
+            <line x1="740" y1="440" x2="740" y2="512" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-d3)"/>
+      
+            <!-- shared input -->
+            <rect x="340" y="56" width="320" height="56" rx="20" fill="#f5f5f5"/>
+            <rect x="340" y="56" width="320" height="56" rx="20" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+            <text x="500" y="82" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Same input: the scan returns nothing</text>
+            <text x="500" y="100" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">LISTEDTOTAL 122 · SCOPEDTOTAL 0 · MISTYPED --CWD</text>
+      
+            <!-- column headers -->
+            <text x="120" y="180" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">AXI P5 AS SPECIFIED</text>
+            <text x="600" y="180" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">HARNESS A6 AS SHIPPED</text>
+      
+            <!-- row 1 -->
+            <text x="500" y="224" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">COMMAND COMPLETED?</text>
+      
+            <rect x="120" y="184" width="280" height="64" rx="6" fill="#f5f5f5"/>
+            <rect x="120" y="184" width="280" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <circle cx="140" cy="206" r="4" fill="#2d3142"/>
+            <text x="152" y="210" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">PASS</text>
+            <text x="260" y="236" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Process returned</text>
+      
+            <rect x="600" y="184" width="280" height="64" rx="6" fill="#f5f5f5"/>
+            <rect x="600" y="184" width="280" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <circle cx="620" cy="206" r="4" fill="#2d3142"/>
+            <text x="632" y="210" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">PASS</text>
+            <text x="740" y="236" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Process returned</text>
+      
+            <!-- row 2 -->
+            <text x="500" y="320" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RESULT SET EMPTY?</text>
+      
+            <rect x="120" y="280" width="280" height="64" rx="6" fill="#f5f5f5"/>
+            <rect x="120" y="280" width="280" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <circle cx="140" cy="302" r="4" fill="#2d3142"/>
+            <text x="152" y="306" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">PASS</text>
+            <text x="260" y="332" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Zero items, no error</text>
+      
+            <rect x="600" y="280" width="280" height="64" rx="6" fill="#f5f5f5"/>
+            <rect x="600" y="280" width="280" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <circle cx="620" cy="302" r="4" fill="#2d3142"/>
+            <text x="632" y="306" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">PASS</text>
+            <text x="740" y="332" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Zero items, no error</text>
+      
+            <!-- row 3 — divergence -->
+            <text x="500" y="404" fill="#eb6c36" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">FIRST DIVERGENCE</text>
+            <text x="500" y="424" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">IS EMPTY THE ANSWER?</text>
+      
+            <rect x="120" y="376" width="280" height="64" rx="6" fill="#f5f5f5"/>
+            <rect x="120" y="376" width="280" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <circle cx="140" cy="398" r="4" fill="#2d3142"/>
+            <text x="152" y="402" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">PASS</text>
+            <text x="260" y="428" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Empty is a definitive state</text>
+      
+            <rect x="600" y="376" width="280" height="64" rx="6" fill="#f5f5f5"/>
+            <rect x="600" y="376" width="280" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <circle cx="620" cy="398" r="4" fill="none" stroke="#2d3142" stroke-width="1.2"/>
+            <text x="632" y="402" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">FAIL</text>
+            <text x="740" y="428" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Matched 0 of 122 listed</text>
+      
+            <!-- outcomes -->
+            <rect x="120" y="512" width="280" height="56" rx="20" fill="#f5f5f5"/>
+            <rect x="120" y="512" width="280" height="56" rx="20" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+            <text x="260" y="538" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Reported clean</text>
+            <text x="260" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">EXIT 0 · GATE PASSES</text>
+      
+            <rect x="600" y="512" width="280" height="56" rx="20" fill="#f5f5f5"/>
+            <rect x="600" y="512" width="280" height="56" rx="20" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+            <text x="740" y="538" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Topology violation</text>
+            <text x="740" y="556" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">EXIT 3 · FIX BEFORE DISPATCH</text>
+      
+            <!-- editorial aside -->
+            <text x="500" y="596" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="middle">a scan of nothing must never read as a pass</text>
+      
+            <!-- legend -->
+            <line x1="80" y1="624" x2="920" y2="624" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+            <text x="80" y="644" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+            <circle cx="176" cy="640" r="4" fill="#2d3142"/>
+            <text x="188" y="644" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">RULE PASSED</text>
+            <circle cx="336" cy="640" r="4" fill="none" stroke="#2d3142" stroke-width="1.2"/>
+            <text x="348" y="644" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">RULE FAILED</text>
+            <line x1="496" y1="640" x2="528" y2="640" stroke="#eb6c36" stroke-width="1"/>
+            <text x="540" y="644" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">DIVERGENCE</text>
+            <text x="920" y="644" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">SAME INPUT · TWO POLICIES</text>
+          </svg>
+    <figcaption><b>Hình 3.</b> Cùng input, hai policy. Hai luật đầu đồng ý; chỗ rẽ nằm ở luật thứ ba — “rỗng có phải là câu trả lời không?”. AXI nói có và thoát sạch; harness hỏi tiếp <em>rỗng so với cái gì</em> rồi báo vi phạm.</figcaption>
+  </figure>
+
+  <h2><span class="num">§ 4</span>Use case — AXI trả tiền ở đâu trong ngày</h2>
+
+  <div class="uc focal">
+    <h3><span>UC-1</span>Cổng sáng, 5 giây, không cần đọc list <span class="mono" style="letter-spacing:0">P4 + P6</span></h3>
+<pre>node scripts/governance-graph.mjs --assert --cwd &lt;repo&gt;; echo "exit=$?"</pre>
+    <p>Agent <strong>không</strong> phải scan mảng agent để tự đếm. <code>meta.scan</code> nói sẵn 122 listed / 2 scoped; exit code nói sẵn có vi phạm hay không. <code>exit 3</code> = dừng, sửa topology trước khi dispatch. Đây là P4 đúng nghĩa: không round-trip để đếm.</p>
+  </div>
+
+  <div class="uc">
+    <h3><span>UC-2</span>Gõ nhầm flag không được phép chạy tiếp <span class="mono" style="letter-spacing:0">P6</span></h3>
+<pre>node scripts/preflight.mjs --stict   <span class="c"># → exit 2, {"error":"unknown_flag", known:[...]}</span></pre>
+    <p>Sự cố thật đã xảy ra: <code>--stict</code> từng chạy non-strict và in <code>ok:true</code> — một cổng nghiệm thu bị vô hiệu im lặng. Giờ <code>known[]</code> in ra để agent tự sửa mà không cần hỏi. Có test hành vi + kill evidence.</p>
+  </div>
+
+  <div class="uc">
+    <h3><span>UC-3</span>Không bao giờ đọc nhầm “cắt” thành “hết” <span class="mono" style="letter-spacing:0">P3</span></h3>
+    <p><code>--assert</code> trên fleet thật trả <code>cwdUnresolved: 21</code> nhưng <code>cwdUnresolvedDetail</code> chỉ 20 phần tử. Agent đọc số đếm, biết còn 1 cái không thấy → không kết luận “chỉ có 20”. Cùng cơ chế: <code>eod-digest</code> cap 200 dòng và tự khai <code>Truncation:</code>.</p>
+  </div>
+
+  <div class="uc">
+    <h3><span>UC-4</span>Digest cuối ngày là <em>quyết định</em>, không phải log <span class="mono" style="letter-spacing:0">P8 + P4</span></h3>
+<pre>node scripts/eod-digest.mjs --workspace .</pre>
+    <p>Section chỉ hiện khi non-empty; ngày yên tĩnh ra digest NGẮN. Footer accounting luôn có: nguồn nào scan/miss/malformed, policy digest nào đang chạy. Ngày <code>26-08-30</code> ra đúng 1 anomaly pre-gate, 0 decision — không flood 25 dòng.</p>
+  </div>
+
+  <div class="uc">
+    <h3><span>UC-5</span>CI đọc exit code, không đọc prose <span class="mono" style="letter-spacing:0">P6</span></h3>
+<pre>- run: node scripts/policy-digest.mjs --check                 <span class="c"># drift → exit 1</span>
+- run: node scripts/check-report-gates.mjs docs/ultrareview   <span class="c"># gate fail → exit 1</span></pre>
+    <p>Cổng pre-merge không cần parse output. Cả hai đều có killing test cho <strong>chính đường exit</strong> — sau khi review bắt được một cổng CI trước đó đảo <code>exit(1)</code>→<code>exit(0)</code> mà cả suite vẫn xanh.</p>
+  </div>
+
+  <div class="uc focal">
+    <h3><span>UC-6</span>Chống fail-open khi scope sai <span class="mono" style="letter-spacing:0">P5 đảo ngược</span></h3>
+    <p>Chạy cổng sáng từ nhầm thư mục → <strong>exit 3</strong>, không phải “0 vi phạm”. Nếu theo đúng AXI P5, ca này im lặng xanh.</p>
+  </div>
+
+  <h2><span class="num">§ 5</span>Kết luận</h2>
+  <p>
+    Harness không “AXI-compliant” — nó <strong>lấy 2 nguyên tắc làm xương sống, 4 làm tiện ích,
+    từ chối 2 vì đo được là lỗ, và đảo ngược 2 vì fail-closed quan trọng hơn gọn gàng</strong>.
+    Chỗ AXI sai với một cổng an toàn thì ghi rõ là sai và chạy ngược lại — có test giữ.
+  </p>
+
+  <footer>
+    <span>paseo-claude-team · docs/axi-adoption-report.html</span>
+    <span>Nguồn: research/axi/00-TONG-HOP.md · research/axi/int-03-axi-in-harness.md</span>
+    <span>Diagram: diagram-design skill · skin mặc định</span>
+  </footer>
+
+</div>
+</body>
+</html>
