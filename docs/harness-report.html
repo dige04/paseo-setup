@@ -91,6 +91,13 @@
   .decision p.dl { font-family:var(--mono); font-size:0.625rem; letter-spacing:0.14em;
                    text-transform:uppercase; color:var(--soft); margin:1rem 0 0.375rem; }
   .decision p.dl:first-of-type { margin-top:0.75rem; }
+  /* Status chip on a decision heading: reads as shipped at a glance, so the
+     eye can skip to the "còn lại" lines that still need the owner. */
+  .decision h4 .done { font-family:var(--mono); font-size:0.5625rem; font-weight:500;
+                       letter-spacing:0.14em; text-transform:uppercase; color:var(--accent);
+                       border:1px solid var(--accent); border-radius:3px;
+                       padding:0.125rem 0.375rem; margin-left:0.375rem; vertical-align:0.0625rem;
+                       white-space:nowrap; }
 
   footer { margin-top:4.5rem; padding-top:1.25rem; border-top:1px solid var(--rule);
            font-family:var(--mono); font-size:0.6875rem; color:var(--soft); letter-spacing:0.06em;
@@ -589,18 +596,19 @@
       <tr><td>Assert topology A1–A7</td><td class="tag c">Candidate+</td><td>Exit 3 chứng minh qua CLI thật; A1 còn vacuum tới khi taxonomy phủ đủ — <em>ghi rõ trong docs</em></td></tr>
       <tr><td>Policy digest / manifest</td><td class="tag c">Candidate+</td><td>Gate nhạy 1 byte; đường symlink fail-open đã vá + test</td></tr>
       <tr><td>Vòng tự cải thiện</td><td class="tag c">Candidate+</td><td>1 chu trình chạy trọn, 6 finding, 3 proposal, human merge</td></tr>
-      <tr><td>Wake tier (đánh thức theo signal)</td><td class="tag o">Open</td><td>Watchdog mới ở mức <em>nghi ngờ</em>; đây là mảnh lớn nhất còn thiếu</td></tr>
+      <tr><td>Wake tier (đánh thức theo signal)</td><td class="tag c">Candidate+</td><td>Đã ship: hai dấu hiệu độc lập mới được đánh thức; ladder dừng sau 2 lần; positive control chứng minh lệnh gửi thật, 7/7 đột biến bị giết</td></tr>
       <tr><td>Fleet nhiều PR/ngày</td><td class="tag o">Open</td><td>Thiết kế có, chưa đo throughput thật</td></tr>
     </tbody>
   </table>
 
   <h2><span class="num">§ 8</span>Rủi ro và nợ — khai thẳng</h2>
   <ul>
-    <li><strong>Seat non-claude không bị hook chặn.</strong> Đo được: agent omp nhìn thấy 35 tool control plane. Hiện phòng bằng <em>phát hiện</em> (assert A4) chứ không phải <em>ngăn</em>. Ngăn thật cần ràng buộc ở tầng daemon.</li>
+    <li><strong>Seat non-claude không bị hook chặn.</strong> Đo được: agent omp nhìn thấy 35 tool control plane. Hiện phòng bằng <em>phát hiện</em> (assert A4) chứ không phải <em>ngăn</em> — ngăn thật cần ràng buộc ở tầng daemon. Đã thu hẹp bằng luật: các seat này chỉ nhận việc đọc (§10.3), nên lỗ hổng còn đó nhưng không nằm trên đường đi của việc nào.</li>
     <li><strong>A1 chưa có răng trên fleet thật</strong> cho tới khi nhãn vai phủ hết. Đã ghi trong code, docs và catalog kèm cảnh báo đừng “dọn” đoạn suppression đó.</li>
     <li><strong>Hai script còn lệch chuẩn:</strong> watchdog chưa có tổng hợp, model-routing thoát bằng exit 64 + usage text thay vì envelope.</li>
     <li><strong>Deployed plane mới versioned một nửa</strong> — cần một lần cài thật trên máy sạch để chốt.</li>
     <li><strong>Chưa chạy đa máy / đa ngày</strong> — mọi con số ở §6 là một host, một ngày.</li>
+    <li><strong>Cấu hình D1 chưa có hiệu lực</strong> cho tới khi daemon được restart — provider chỉ đọc lúc khởi động. Đây là việc chờ anh, không phải nợ kỹ thuật.</li>
   </ul>
 
   <h2><span class="num">§ 9</span>Chi phí đem sang project khác</h2>
@@ -616,90 +624,133 @@
     </tbody>
   </table>
 
-  <h2><span class="num">§ 10</span>Cần anh quyết</h2>
+  <h2><span class="num">§ 10</span>Đã quyết — và đã làm</h2>
   <p>
-    Ba việc dưới đây tôi không tự quyết được: một cái là thay đổi cấu hình vận hành,
-    một cái là chọn thứ tự ưu tiên, một cái là đánh đổi bảo mật. Mỗi việc viết theo cùng
-    một khuôn: <em>chuyện gì đang xảy ra · chọn gì · giá bao nhiêu · tôi đề xuất gì</em>.
+    Ba việc ở bản trước đã được anh trả lời ngày 31/08. Phần dưới là <em>chốt gì · đã làm gì ·
+    còn lại gì</em>. Bản ghi đầy đủ, kèm hai phương án bị loại và giá của chúng, ở
+    <code>docs/decisions/26-08-31-owner-decisions.md</code>.
   </p>
 
   <div class="decision">
-    <h4>1 · Đổi chỗ ngồi của Lead — 1 dòng cấu hình</h4>
-    <p class="dl">Chuyện gì đang xảy ra</p>
+    <h4>1 · Đổi chỗ ngồi của Lead — <span class="done">đã làm</span></h4>
+    <p class="dl">Chốt</p>
+    <p>Tắt chỗ ngồi trống. Từ nay không mở được phiên nào không mang vai.</p>
+    <p class="dl">Đã làm</p>
     <p>
-      Mỗi khi Lead tạo một agent con, hệ thống muốn dán nhãn lên agent đó: <em>ai tạo, thuộc
-      project nào, làm vai gì</em>. Nhãn này là thứ để sau đó biết agent nào là của mình,
-      agent nào đang ghi file, agent nào bỏ quên cần dọn.
+      Thêm một dòng vào <code>~/.paseo/config.json</code>. Đây đúng là bước 1 của trình cài đặt,
+      trước giờ chưa từng được merge trên máy này. Có backup, đổi lại được trong 10 giây.
+    </p>
+    <p class="dl">Còn lại — cần anh làm, tôi cố ý không tự làm</p>
+    <p>
+      <strong>Chưa restart daemon.</strong> Cấu hình provider chỉ được đọc lúc daemon khởi động,
+      nên thay đổi này chưa có hiệu lực. Restart sẽ giết agent đang chạy, nên đó là lúc anh chọn,
+      không phải tôi. Sau khi restart, kiểm một câu: <code>paseo provider ls | grep claude-</code> —
+      còn đủ ba dòng là xong; mất là restore backup.
     </p>
     <p>
-      Nhưng cái cổng dán nhãn chỉ bật lên nếu <strong>bản thân người tạo</strong> đang ngồi ở
-      một chỗ có gắn hook. Hôm nay Lead ngồi ở chỗ trống — nên cổng không bao giờ nổ, và mọi
-      agent con sinh ra đều <strong>không có nhãn</strong>. Kết quả cụ thể: 9 agent vô danh
-      trong hệ thống, cổng kiểm tra buổi sáng nhìn vào chỉ biết nói “không xác định”.
-    </p>
-    <p class="dl">Chọn gì · Giá</p>
-    <p>
-      Cho Lead ngồi vào chỗ có hook (<code>claude-lead</code>) — sửa một dòng trong file cấu hình.
-      Từ đó mọi agent Lead sinh ra <strong>bắt buộc</strong> có nhãn, kể cả agent chạy trên
-      provider ngoài. Không cần sửa code, không cần deploy. Sai thì đổi lại trong 10 giây.
-    </p>
-    <p class="dl">Tôi đề xuất</p>
-    <p><strong>Làm ngay.</strong> Rẻ nhất trong ba việc, và nó là điều kiện để cổng kiểm tra buổi sáng thật sự có tác dụng chứ không chỉ báo “không biết”.</p>
-  </div>
-
-  <div class="decision">
-    <h4>2 · Việc tiếp theo làm cái nào trước</h4>
-    <p class="dl">Chuyện gì đang xảy ra</p>
-    <p>Còn hai mảng lớn, cả hai đều cần cùng một thứ khan hiếm: thời gian theo dõi của người và số agent chạy song song. Làm cùng lúc thì cả hai đều ra kết quả nhiễu.</p>
-    <p class="dl">Chọn gì</p>
-    <p>
-      <strong>A. Cơ chế đánh thức.</strong> Hiện nếu một agent bị treo — đứng im, không báo lỗi,
-      không báo xong — hệ thống chỉ ghi nhận “đáng ngờ” rồi thôi. Không ai đánh thức nó, không
-      ai báo cho người. Nó nằm đó tới khi có người tình cờ mở ra xem. Làm mảng này = hệ thống
-      tự phát hiện agent chết và tự báo.
-    </p>
-    <p>
-      <strong>B. Đo năng suất thật.</strong> Con số “bao nhiêu PR một ngày” hiện mới là tính toán
-      trên giấy. Đo thật = chạy một đợt có kiểm soát rồi đếm cái thực sự ra được.
-    </p>
-    <p class="dl">Tôi đề xuất</p>
-    <p>
-      <strong>Làm A trước.</strong> Lý do đơn giản: đo năng suất trong lúc chưa phát hiện được agent
-      treo thì con số đo ra không tin được — không biết đợt đó có bao nhiêu agent chết giữa chừng
-      mà không ai hay. Sửa mắt trước, đo sau.
+      Hai điều tôi <strong>không</strong> làm: không gắn nhãn ngược cho 9 agent cũ (đúng theo
+      phán quyết F015 — không backfill), và không đụng ~20 agent đang nằm ở chỗ ngồi cũ. Nếu có
+      con nào anh còn cần mở lại, mở trước khi restart.
     </p>
   </div>
 
   <div class="decision">
-    <h4>3 · Agent chạy trên provider ngoài: ngăn thật, hay chỉ phát hiện?</h4>
+    <h4>2 · Cơ chế đánh thức — <span class="done">đã làm</span></h4>
+    <p class="dl">Chốt</p>
+    <p>Làm cơ chế đánh thức trước, đo năng suất sau. Sửa mắt trước, đo sau.</p>
+    <p class="dl">Đã làm</p>
+    <p>
+      Hai nguyên tắc chịu lực. Thứ nhất, <strong>một dấu hiệu không bao giờ đủ</strong>: đồng hồ
+      đứng yên có thể chỉ là một lệnh chạy lâu, nên phải có thêm dấu hiệu thứ hai — dòng hoạt động
+      của agent y hệt nhau qua hai lần soi cách nhau 20 giây. Thiếu dấu hiệu thứ hai thì ghi
+      “chưa xác minh được”, không đánh thức. Thứ hai, <strong>đang chờ xin phép không phải là
+      treo</strong>: trông giống hệt nhau, nhưng đánh thức chẳng giải quyết gì — cái nó cần là
+      người bấm đồng ý. Nhánh đó báo người, không đánh thức.
+    </p>
+    <p>
+      Và nó <strong>dừng</strong>: gọi hai lần không trả lời thì thôi, chuyển sang báo người vĩnh viễn.
+      Một cái watchdog cứ 5 phút lại gọi một agent đã chết còn tệ hơn là im lặng.
+    </p>
+    <p>
+      Quyền hạn tách đôi: <em>quét</em> thì Supervisor và Lead đều được; <em>đánh thức</em> chỉ Lead —
+      gửi prompt cho một agent là giao việc, và bộ này có đúng một người giao việc.
+    </p>
+    <p class="dl">Cái nó KHÔNG làm được — nói thẳng</p>
+    <p>
+      Hai dấu hiệu đi qua hai đường khác nhau, nhưng không độc lập với cùng một <em>nguyên nhân</em>:
+      một agent đang chạy một lệnh dài — ví dụ bộ test 20 phút — thì cả hai cùng đứng im vì đúng một
+      lý do. Đo thật hôm 31/08 bằng cách hạ ngưỡng xuống 1 giây: hai agent đang khoẻ bị xếp thành
+      “nên đánh thức”. Ba thứ giới hạn thiệt hại chứ không xoá được nó: ngưỡng mặc định 10 phút đặt
+      cao hơn mọi lệnh hợp lệ, câu đánh thức chỉ hỏi “đang làm bước nào” và cấm bắt việc mới, và
+      ladder dừng ở lần thứ hai. Muốn xử triệt để thì cần một tín hiệu phân biệt “không có sự kiện
+      nào” với “có một sự kiện đang mở” — nền tảng chưa cung cấp. Đã ghi làm đề nghị gửi lên, không
+      chế thêm tín hiệu giả: một dấu hiệu thứ ba thực chất là dấu hiệu thứ nhất thì chỉ làm báo cáo
+      trông chắc chắn hơn chứ không chắc chắn hơn.
+    </p>
+    <p class="dl">Bằng chứng</p>
+    <p>
+      Có một test chứng minh lệnh đánh thức <strong>thật sự được gửi đi</strong>, chứ không chỉ
+      chứng minh “đã phân loại là treo” — đó đúng là kiểu cổng rỗng đã lọt qua cả một vòng review
+      lần trước. Bảy phép đột biến chạy vào module và vào cổng hook, cả bảy đều bị test giết.
+    </p>
+    <p class="dl">Còn lại</p>
+    <p>Đo năng suất thật — giờ đã hết vướng, xếp thứ hai.</p>
+  </div>
+
+  <div class="decision">
+    <h4>3 · Provider ngoài giữ nguyên vai scout — <span class="done">đã chốt thành luật</span></h4>
+    <p class="dl">Chốt</p>
+    <p>
+      Phương án A: chỉ giao việc <em>đọc</em>. Không giao việc ghi, không cho làm writer trong vòng sửa.
+      Giá: 0.
+    </p>
+    <p class="dl">Vì sao 0 đồng mà vẫn an toàn</p>
+    <p>
+      Vì đây là lập luận về <em>phạm vi việc</em>, không phải về khả năng chặn. Với một brief đi đọc,
+      cái seat đó chẳng có lý do gì đụng tới bảng điều khiển — lỗ hổng vẫn còn nhưng không tốn gì.
+      Với một brief ghi file, cũng lỗ hổng đó thành một seat không giới hạn với một hợp đồng không
+      cưỡng chế được. Nên ranh giới được vẽ ở <strong>việc mình giao</strong>.
+    </p>
+    <p class="dl">Đã làm</p>
+    <p>
+      Viết thành luật đứng ở hai chỗ: skill ultra-review và <code>FLEET_POLICY</code> trong hợp đồng
+      dự án. <strong>Cố ý không</strong> dựng thêm cổng hook — anh chọn A vì nó không tốn gì, mà một
+      cái cổng thì có tốn.
+    </p>
+    <p class="dl">Còn lại</p>
+    <p>
+      Gửi đề nghị lên nền tảng (phương án C) — chạy song song, không chặn gì. Phương án B (bản fork)
+      chỉ lôi ra lại khi nào thật sự cần giao việc ghi cho provider ngoài.
+    </p>
+  </div>
+
+  <div class="decision">
+    <h4>4 · Skill rời khỏi cấp máy — <span class="done">đã làm</span></h4>
     <p class="dl">Chuyện gì đang xảy ra</p>
     <p>
-      Đã đo được: một agent chạy trên provider ngoài (omp/Gemini) <strong>nhìn thấy toàn bộ bảng
-      điều khiển</strong> của hệ thống — nó có thể tạo agent mới, xoá workspace, huỷ agent khác.
-      Hiện chỉ có một câu trong prompt bảo nó đừng làm.
+      Skill nằm ở <code>~/.claude/skills</code> thì <strong>mọi phiên trên máy</strong> đều được mời
+      dùng — kể cả những dự án chỉ cần Claude Code thường. Mà phần lớn dự án không cần SLP: hai agent
+      cho một feature nhỏ là thêm thủ tục, không phải thêm kiểm soát.
     </p>
+    <p class="dl">Đã làm</p>
     <p>
-      Nếu nó lệch khỏi việc được giao, mình <strong>phát hiện được sau</strong> (cổng kiểm tra sẽ
-      báo) nhưng <strong>không chặn được lúc đó</strong>. Giống như có camera nhưng không có khoá cửa.
+      Trình cài đặt giờ <strong>mặc định không cài skill nào</strong>. Muốn dự án nào dùng thì onboard
+      riêng dự án đó, và nó <strong>từ chối</strong> nếu dự án chưa có file hợp đồng
+      <code>WORKSPACE_PROTOCOL.md</code> — vì skill không có hợp đồng thì agent có quy trình mà không
+      có gì để đối chiếu. Đã gỡ 5 skill của bộ này khỏi cấp máy (còn 91 skill khác, trong đó 7 skill
+      <code>paseo-*</code> không phải của bộ này, không đụng tới).
     </p>
-    <p class="dl">Chọn gì · Giá</p>
+    <p class="dl">Cái bẫy đáng nói</p>
     <p>
-      <strong>A. Giữ nguyên, chỉ giao việc đọc.</strong> Provider ngoài chỉ dùng làm scout đi soi code,
-      không giao việc ghi. Rủi ro thấp vì scout không có lý do gì để tạo agent. Giá: 0.
+      Peer chạy trong <strong>worktree</strong> — một bản checkout riêng. Skill để ở thư mục dự án mà
+      không commit thì chỉ tồn tại ở bản gốc, và cái seat cần nó nhất lại là cái duy nhất không thấy.
+      Nên: dự án nào có Peer chạy worktree thì <strong>commit</strong> <code>.claude/skills/</code>.
+      Trình cài đặt in cảnh báo này ngay lúc cài, không để phát hiện lúc đang giao việc.
     </p>
+    <p class="dl">Cách onboard dự án mới</p>
     <p>
-      <strong>B. Dùng bản fork có sẵn tính năng chặn.</strong> Được khoá cửa thật. Giá: đang chạy bản
-      chính thức, chuyển sang bản do một cá nhân sửa — tức đổi luôn chuỗi tin cậy của nền tảng.
-      Đây mới là phần đắt, không phải công sức cài đặt.
-    </p>
-    <p>
-      <strong>C. Đề nghị nền tảng bổ sung tính năng.</strong> Đúng đắn nhất, chậm nhất, không chắc được duyệt.
-    </p>
-    <p class="dl">Tôi đề xuất</p>
-    <p>
-      <strong>A bây giờ, C gửi song song.</strong> Chỉ cân nhắc B khi nào thật sự cần giao việc
-      <em>ghi file</em> cho provider ngoài — hiện chưa cần. Đây là đánh đổi bảo mật nên tôi nêu
-      lựa chọn chứ không tự quyết.
+      Ba bước, chi tiết ở <code>docs/onboarding.md</code> — trong đó có cả phần <em>khi nào đừng
+      onboard</em>, vì đó mới là câu trả lời đúng cho phần lớn dự án.
     </p>
   </div>
 

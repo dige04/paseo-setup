@@ -13,13 +13,14 @@ import { isMainModule as isOcrReviewMain } from "../scripts/ocr-review.mjs";
 import { isMainModule as isUltraReviewMain } from "../scripts/ultra-review-report.mjs";
 import { isMainModule as isCommunicationMain } from "../scripts/team-communication.mjs";
 import { isMainModule as isWatchdogMain } from "../scripts/watchdog.mjs";
+import { isMainModule as isWakeTierMain } from "../scripts/wake-tier.mjs";
 import { isMainModule as isPathMain } from "../scripts/team-scripts-path.mjs";
 import { defaultTeamScriptsDir, resolveTeamScriptsDir } from "../scripts/team-scripts-path.mjs";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = join(root, "scripts");
 const installed = mkdtempSync(join(tmpdir(), "paseo-installed-support-"));
 const unrelatedCwd = mkdtempSync(join(tmpdir(), "paseo-unrelated-cwd-"));
-for (const file of ["lib-common.mjs", "remote-paseo.mjs", "model-routing.mjs", "reliability.mjs", "reconcile-core.mjs", "reconcile-observer.mjs", "policy-digest.mjs", "team-communication.mjs", "watchdog.mjs", "ocr-review.mjs", "ocr-setup.mjs", "ultra-review-report.mjs", "team-scripts-path.mjs"]) {
+for (const file of ["lib-common.mjs", "remote-paseo.mjs", "model-routing.mjs", "reliability.mjs", "reconcile-core.mjs", "reconcile-observer.mjs", "policy-digest.mjs", "team-communication.mjs", "watchdog.mjs", "wake-tier.mjs", "ocr-review.mjs", "ocr-setup.mjs", "ultra-review-report.mjs", "team-scripts-path.mjs"]) {
   cpSync(join(source, file), join(installed, file));
 }
 
@@ -73,6 +74,7 @@ const symlinkCases = [
   [join(installed, "ultra-review-report.mjs"), isUltraReviewMain],
   [join(installed, "team-communication.mjs"), isCommunicationMain],
   [join(installed, "watchdog.mjs"), isWatchdogMain],
+  [join(installed, "wake-tier.mjs"), isWakeTierMain],
   [join(installed, "team-scripts-path.mjs"), isPathMain],
 ];
 for (const [target, isMain] of symlinkCases) {
@@ -188,7 +190,7 @@ for (const installer of ["install.sh", "install.ps1"]) {
   // The allowlist spells the names inside regex literals ("watchdog\\.mjs"),
   // so compare against the unescaped text.
   const claudePolicy = readFileSync(join(root, "extensions", "claude-policy.mts"), "utf8").replace(/\\/g, "");
-  for (const script of ["team-communication.mjs", "watchdog.mjs"]) {
+  for (const script of ["team-communication.mjs", "watchdog.mjs", "wake-tier.mjs"]) {
     assert.ok(
       claudePolicy.includes(script),
       `claude-policy.mts must allowlist ${script} explicitly`,
@@ -461,6 +463,74 @@ if (process.platform !== "win32") {
 	void out;
 	assert.equal(gitOut(parent, ["rev-list", "--count", "HEAD"]), "1", "foreign worktree parent must gain no commits (F008)");
 	assert.ok(!existsSync(join(wt, ".git", "HEAD")) || readFileSync(join(wt, ".git"), "utf8").startsWith("gitdir:"), "worktree .git file must survive untouched");
+
+	// -----------------------------------------------------------------------
+	// Skill SCOPE. A skill in ~/.claude/skills is offered to every session on
+	// the host, and most projects here are not SLP projects. These run the real
+	// installer because the scoping lives entirely in its control flow: a text
+	// assert would stay green with the copy in a dead branch.
+	// -----------------------------------------------------------------------
+	const runArgs = (env, args) =>
+		execFileSync("bash", [join(root, "scripts", "install.sh"), ...args], {
+			env: { ...process.env, ...env },
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+	const packSkills = ["paseo-team-lead", "paseo-ocr-reviewer", "paseo-ultra-review", "paseo-premise-audit", "repo-refresh"];
+
+	// The three installs above ran with no --project and no --global-skills.
+	// None of them may have written a global skill.
+	for (const skill of packSkills) {
+		assert.ok(
+			!existsSync(join(skills, skill)),
+			`a default install must not put ${skill} in the global skills dir`,
+		);
+	}
+
+	// WORKSPACE_PROTOCOL.md is the opt-in. Without it the installer refuses,
+	// and — the part that matters — writes nothing.
+	const proj = join(sandbox, "project");
+	mkdirSync(proj, { recursive: true });
+	assert.throws(
+		() => runArgs(env, ["--skip-ocr", "--skills-only", "--project", proj]),
+		(error) => /WORKSPACE_PROTOCOL\.md/.test(String(error.stderr)),
+		"a project with no protocol file must be refused",
+	);
+	assert.ok(!existsSync(join(proj, ".claude")), "a refused onboard must leave no partial install");
+
+	// The template documents .orchestration/, so that location must satisfy the
+	// opt-in too — a check that only accepts the root would teach people to
+	// bypass it rather than to write the contract.
+	mkdirSync(join(proj, ".orchestration"), { recursive: true });
+	writeFileSync(join(proj, ".orchestration", "WORKSPACE_PROTOCOL.md"), "# scopes\n");
+	runArgs(env, ["--skip-ocr", "--skills-only", "--project", proj]);
+	assert.ok(existsSync(join(proj, ".claude", "skills", "paseo-team-lead", "SKILL.md")), ".orchestration/ must count as opt-in");
+
+	// The repo root is the second accepted location.
+	const proj2 = join(sandbox, "project-root-protocol");
+	mkdirSync(proj2, { recursive: true });
+	writeFileSync(join(proj2, "WORKSPACE_PROTOCOL.md"), "# scopes\n");
+	runArgs(env, ["--skip-ocr", "--skills-only", "--project", proj2]);
+	for (const skill of packSkills) {
+		assert.ok(existsSync(join(proj2, ".claude", "skills", skill, "SKILL.md")), `${skill} must reach the project`);
+		assert.ok(!existsSync(join(skills, skill)), `${skill} must not leak to the global dir`);
+	}
+	// --skills-only must not have re-run the runtime half: no new deploy commit.
+	assert.match(gitOut(deploy, ["log", "--format=%s", "-1"]), /^refresh /);
+
+	// --global-skills is the explicit escape hatch, and the uninstall reverses
+	// exactly it — the pack's five directories, and nothing neighbouring.
+	runArgs(env, ["--skip-ocr", "--skills-only", "--global-skills"]);
+	for (const skill of packSkills) assert.ok(existsSync(join(skills, skill)), `${skill} must honour --global-skills`);
+	mkdirSync(join(skills, "somebody-elses-skill"), { recursive: true });
+	writeFileSync(join(skills, "somebody-elses-skill", "SKILL.md"), "not ours\n");
+	runArgs(env, ["--uninstall-global-skills"]);
+	for (const skill of packSkills) assert.ok(!existsSync(join(skills, skill)), `${skill} must be removed globally`);
+	assert.ok(
+		existsSync(join(skills, "somebody-elses-skill", "SKILL.md")),
+		"the uninstall removes the pack's skills only, never a neighbour's",
+	);
+	assert.ok(existsSync(join(deploy, "scripts", "wake-tier.mjs")), "the runtime survives a skills uninstall");
 }
 
 console.log("installer contract tests passed");

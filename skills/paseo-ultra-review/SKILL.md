@@ -79,6 +79,18 @@ State the restrictions in the brief regardless of provider. For `claude-peer`
 the brief is what the hook parses; for `agy` the brief is the only thing there
 is.
 
+**Standing rule (owner decision, 2026-08-31).** A non-claude seat gets
+**read-only scouting and nothing else**. Never dispatch one a write task, and
+never make one a writer in a fix round. The reasoning is worth keeping because
+it is a scoping decision, not a capability claim: on a scouting brief the seat
+has no reason to touch the control plane at all, so the gap above costs
+nothing; on a write brief the same gap is an unbounded seat with an
+unenforceable contract. Prevention needs a daemon-level bound this pack cannot
+install, so the boundary is drawn at *what these seats are asked to do*, and
+detection (`--assert` A4) covers the rest. Recorded in
+`docs/decisions/26-08-31-owner-decisions.md`; two rejected alternatives are
+written up there with their costs.
+
 Scouts perform **static read-only inspection only**. No tests, builds, package
 managers, proof commands, or task runners — a scout that runs the suite is
 producing evidence about an implementation, not recall about a defect, and it

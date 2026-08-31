@@ -20,8 +20,25 @@ extensions/policy-core.mts     runtime-agnostic rules — roles, tool tables,
 
 ```bash
 git clone <this repo> && cd paseo-claude-team
-./scripts/install.sh                 # add --skip-ocr to skip the global OCR package
+./scripts/install.sh                 # runtime + hook. Add --skip-ocr to skip the global OCR package.
 ```
+
+That installs the **runtime** (host-wide, and necessarily so — the provider env
+pins absolute paths). It installs **no skills**: those are per project, because a
+skill in `~/.claude/skills` is offered to every session on the host and most
+projects should not run SLP at all. Onboard the ones that should:
+
+```bash
+mkdir -p <project>/.orchestration
+cp templates/WORKSPACE_PROTOCOL.example.md <project>/.orchestration/WORKSPACE_PROTOCOL.md
+$EDITOR <project>/.orchestration/WORKSPACE_PROTOCOL.md   # the contract — this is the real step
+./scripts/install.sh --skills-only --project <project>
+```
+
+The install refuses without that protocol file: skills with no project contract
+give an agent a workflow and nothing to run it against. `docs/onboarding.md`
+covers the full split, when *not* to onboard, and whether to commit
+`.claude/skills/` (yes, if Peers will run in Paseo worktrees).
 
 Then, by hand (the pack never writes your Paseo config):
 
@@ -41,8 +58,9 @@ Then, by hand (the pack never writes your Paseo config):
      so a role-less session cannot be started by accident. The three role
      providers extend `claude` and keep working — this mirrors a verified
      upstream pattern.
-2. `paseo daemon restart` **when no agent is running**. There is no reload;
-   providers are read only at startup, and a restart kills running agents.
+2. `paseo daemon restart` **when no agent is running** — a restart kills running
+   agents. Current builds expose `paseo daemon reload`, but providers are read at
+   startup; if you use it, confirm with `paseo provider ls` rather than assuming.
 3. `paseo provider ls` → `claude-supervisor`, `claude-lead`, `claude-peer`.
 4. `node scripts/preflight.mjs`
 

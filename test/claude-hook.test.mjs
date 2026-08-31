@@ -285,6 +285,44 @@ assert.ok(
   "a supervisor's watchdog affordance is the installed script, not any file named like it",
 );
 
+// Wake tier. The scan is observation and the Supervisor may run it; --wake
+// sends a prompt to an agent, which is a dispatch, and this pack has exactly
+// one dispatcher. Both verdicts ride the SAME sanctioned path, so the split is
+// the flag and nothing else.
+{
+  const wake = `node ${scriptsDir}/wake-tier.mjs`;
+  const allows = (command, role) => denial(preToolUse(`wake-${role}`, "Bash", { command }, role)) === null;
+
+  for (const permitted of [wake, `${wake} --max-wakes 2`, `${wake} --hung-after-ms 600000 --probe-gap-ms 20000`]) {
+    assert.ok(allows(permitted, "supervisor"), `supervisor must be able to scan for hung agents: ${permitted}`);
+  }
+  assert.match(
+    denial(preToolUse("wake-sup", "Bash", { command: `${wake} --wake` }, "supervisor")) ?? "",
+    /not --wake/,
+    "the Supervisor observes the hang; the Lead is the one who wakes",
+  );
+  assert.ok(allows(`${wake} --wake`, "lead"), "the Lead holds the actuator");
+
+  // Closed flag allowlist, and numeric flags take digits only — otherwise
+  // `--max-wakes $(...)` would ride in on a sanctioned path.
+  for (const refused of [
+    `${wake} --serve`,
+    `${wake} --out /tmp/x`,
+    `${wake} --max-wakes $(id)`,
+    `${wake} --wake && rm -rf /`,
+    "node ./wake-tier.mjs",
+    `node ${scriptsDir}/../../evil/wake-tier.mjs`,
+  ]) {
+    assert.ok(!allows(refused, "supervisor"), `must not match the wake-tier allowlist: ${refused}`);
+  }
+
+  assert.match(
+    denial(preToolUse("peer-shell", "Bash", { command: wake }, "peer")) ?? "",
+    /wake-tier is restricted/,
+    "a Peer reports a hung sibling to the Lead rather than scanning the fleet",
+  );
+}
+
 // Governance graph: the Supervisor's second shell affordance. Observing
 // topology is its job, so a read-only snapshot is allowed — but the flag
 // allowlist is CLOSED. --serve binds a socket that outlives the turn, and

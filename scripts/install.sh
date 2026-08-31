@@ -21,12 +21,31 @@
 set -euo pipefail
 
 SKIP_OCR=0
+SKILLS_ONLY=0
+GLOBAL_SKILLS=0
+UNINSTALL_GLOBAL_SKILLS=0
+PROJECT_DIR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-ocr) SKIP_OCR=1; shift ;;
+    --project)
+      [[ $# -ge 2 ]] || { echo "[paseo-claude-team] --project requires a path" >&2; exit 1; }
+      PROJECT_DIR="$2"; shift 2 ;;
+    --global-skills) GLOBAL_SKILLS=1; shift ;;
+    --uninstall-global-skills) UNINSTALL_GLOBAL_SKILLS=1; shift ;;
+    --skills-only) SKILLS_ONLY=1; shift ;;
     -h|--help)
-      echo "usage: install.sh [--skip-ocr]"
-      echo "  --skip-ocr   do not install the OpenCodeReview CLI (a global npm package)"
+      echo "usage: install.sh [--project <path>] [--skills-only] [--global-skills]"
+      echo "                  [--uninstall-global-skills] [--skip-ocr]"
+      echo "  --project <path>            install the skills into <path>/.claude/skills."
+      echo "                              Requires <path>/WORKSPACE_PROTOCOL.md: that file is"
+      echo "                              the project's opt-in to SLP. No protocol, no skills."
+      echo "  --skills-only               skip the runtime/hook/OCR install. Use this to onboard"
+      echo "                              the 2nd..Nth project once the runtime is already there."
+      echo "  --global-skills             install the skills into ~/.claude/skills for EVERY"
+      echo "                              session, SLP or not. Opt-in, and rarely what you want."
+      echo "  --uninstall-global-skills   remove the pack's skills from ~/.claude/skills, then exit."
+      echo "  --skip-ocr                  do not install the OpenCodeReview CLI (a global npm package)"
       exit 0 ;;
     *) echo "[paseo-claude-team] unknown argument: $1" >&2; exit 1 ;;
   esac
@@ -35,6 +54,57 @@ done
 ROLE_PACK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLAUDE_TEAM_DIR="${CLAUDE_TEAM_DIR:-$HOME/.claude/paseo-team}"
 CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
+
+# The skills the pack owns. Named once: the install loop, the global uninstall
+# and the summary all read this list, so a skill can never be installed by one
+# and missed by the other.
+PACK_SKILLS=(paseo-team-lead paseo-ocr-reviewer paseo-ultra-review paseo-premise-audit repo-refresh)
+
+# --uninstall-global-skills is a standalone action. It removes only the five
+# directories this pack owns and never touches a neighbouring skill.
+if [[ "$UNINSTALL_GLOBAL_SKILLS" -eq 1 ]]; then
+  removed=0
+  for skill in "${PACK_SKILLS[@]}"; do
+    if [[ -d "$CLAUDE_SKILLS_DIR/$skill" ]]; then
+      rm -rf "$CLAUDE_SKILLS_DIR/$skill"
+      echo "[paseo-claude-team] removed $CLAUDE_SKILLS_DIR/$skill"
+      removed=$((removed + 1))
+    fi
+  done
+  echo "[paseo-claude-team] removed $removed global skill(s); the runtime at $CLAUDE_TEAM_DIR is untouched"
+  exit 0
+fi
+
+# Where the skills land. Default is NOWHERE: most projects do not run SLP, and
+# a skill in ~/.claude/skills is offered to every session on the host — including
+# the ones that should just be plain Claude Code. Scope is opt-in per project.
+SKILLS_TARGET=""
+if [[ -n "$PROJECT_DIR" ]]; then
+  [[ -d "$PROJECT_DIR" ]] || { echo "[paseo-claude-team] --project path does not exist: $PROJECT_DIR" >&2; exit 1; }
+  PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
+  # WORKSPACE_PROTOCOL.md is the opt-in marker, not a formality: it is the file
+  # that says which scopes exist and how this project restricts skill admission.
+  # Installing the skills without it would hand an agent a workflow with no
+  # project contract to run it against.
+  #
+  # Both locations count. The template documents .orchestration/, repos that
+  # keep no such directory put it at the root, and refusing one of the two on a
+  # technicality would only teach people to bypass the check.
+  if [[ ! -f "$PROJECT_DIR/WORKSPACE_PROTOCOL.md" && ! -f "$PROJECT_DIR/.orchestration/WORKSPACE_PROTOCOL.md" ]]; then
+    echo "[paseo-claude-team] $PROJECT_DIR has no WORKSPACE_PROTOCOL.md — that file is the project's opt-in to SLP." >&2
+    echo "[paseo-claude-team] Put it at .orchestration/WORKSPACE_PROTOCOL.md (or the repo root)," >&2
+    echo "[paseo-claude-team] starting from templates/WORKSPACE_PROTOCOL.example.md, then re-run." >&2
+    exit 1
+  fi
+  SKILLS_TARGET="$PROJECT_DIR/.claude/skills"
+elif [[ "$GLOBAL_SKILLS" -eq 1 ]]; then
+  SKILLS_TARGET="$CLAUDE_SKILLS_DIR"
+fi
+
+if [[ "$SKILLS_ONLY" -eq 1 && -z "$SKILLS_TARGET" ]]; then
+  echo "[paseo-claude-team] --skills-only needs --project <path> (or --global-skills); there is nothing else to do" >&2
+  exit 1
+fi
 
 TEAM_SUPPORT_FILES=(
   # lib-common.mjs must ship: every other support script imports it as
@@ -45,6 +115,7 @@ TEAM_SUPPORT_FILES=(
   reconcile-observer.mjs
   policy-digest.mjs
   watchdog.mjs
+  wake-tier.mjs
   team-communication.mjs
   ocr-review.mjs
   ultra-review-report.mjs
@@ -57,7 +128,16 @@ TEAM_SUPPORT_FILES=(
   check-report-gates.mjs
 )
 
-mkdir -p "$CLAUDE_TEAM_DIR/prompts" "$CLAUDE_TEAM_DIR/scripts" "$CLAUDE_TEAM_DIR/state" "$CLAUDE_SKILLS_DIR"
+# ---------------------------------------------------------------------------
+# Runtime: the hook, the policy, the support scripts. This half is HOST-wide by
+# construction — the provider config points PASEO_TEAM_SCRIPTS_DIR and
+# PASEO_TEAM_STATE_DIR at absolute paths and the bash allowlist compares full
+# paths, so it cannot be made per-project. --skills-only skips it for the
+# 2nd..Nth project, where it is already installed.
+# ---------------------------------------------------------------------------
+if [[ "$SKILLS_ONLY" -eq 0 ]]; then
+
+mkdir -p "$CLAUDE_TEAM_DIR/prompts" "$CLAUDE_TEAM_DIR/scripts" "$CLAUDE_TEAM_DIR/state"
 chmod 700 "$CLAUDE_TEAM_DIR/state"
 mkdir -p "$HOME/.paseo-claude-team"
 
@@ -71,12 +151,6 @@ chmod +x "$CLAUDE_TEAM_DIR/claude-team-hook.mjs"
 cp -f "$ROLE_PACK_ROOT"/prompts/*.md "$CLAUDE_TEAM_DIR/prompts/"
 for support_file in "${TEAM_SUPPORT_FILES[@]}"; do
   cp -f "$ROLE_PACK_ROOT/scripts/$support_file" "$CLAUDE_TEAM_DIR/scripts/"
-done
-
-# The policy says what an agent MAY do; the skills say HOW the work is run.
-for skill in paseo-team-lead paseo-ocr-reviewer paseo-ultra-review paseo-premise-audit repo-refresh; do
-  rm -rf "$CLAUDE_SKILLS_DIR/$skill"
-  cp -R "$ROLE_PACK_ROOT/skills/$skill" "$CLAUDE_SKILLS_DIR/$skill"
 done
 
 # Hook wiring with the absolute path resolved. Written as its own settings file
@@ -166,14 +240,47 @@ else
   echo "[paseo-claude-team] skipping OCR CLI (--skip-ocr)"
 fi
 
+fi
+# --------------------------- end runtime install ---------------------------
+
+# The policy says what an agent MAY do; the skills say HOW the work is run.
+# Scope is deliberate: a skill in ~/.claude/skills is offered to every session
+# on this host, and most projects here are not SLP projects. Per project by
+# default; --global-skills is the explicit escape hatch.
+if [[ -n "$SKILLS_TARGET" ]]; then
+  mkdir -p "$SKILLS_TARGET"
+  for skill in paseo-team-lead paseo-ocr-reviewer paseo-ultra-review paseo-premise-audit repo-refresh; do
+    rm -rf "$SKILLS_TARGET/$skill"
+    cp -R "$ROLE_PACK_ROOT/skills/$skill" "$SKILLS_TARGET/$skill"
+  done
+  echo "[paseo-claude-team] skills -> $SKILLS_TARGET"
+  if [[ -n "$PROJECT_DIR" ]]; then
+    # Peers run in Paseo worktrees, which are separate checkouts. An uncommitted
+    # .claude/skills exists in the project root and NOWHERE else, so the Peer
+    # that needs the workflow is the one seat that cannot see it. Say so here
+    # rather than letting it be discovered as a missing skill mid-dispatch.
+    echo "[paseo-claude-team] NOTE: commit .claude/skills/ if Peers will run in Paseo worktrees —"
+    echo "                   a worktree is a separate checkout and does not inherit uncommitted files."
+  fi
+else
+  echo "[paseo-claude-team] skills: none installed (by design)."
+  echo "                   Onboard a project with: scripts/install.sh --skills-only --project <path>"
+fi
+
 echo ""
 echo "[paseo-claude-team] Installed:"
+if [[ "$SKILLS_ONLY" -eq 0 ]]; then
 echo "  runtime  -> $CLAUDE_TEAM_DIR"
 echo "  hooks    -> $CLAUDE_SETTINGS"
 echo "  prompts  -> $CLAUDE_TEAM_DIR/prompts"
 echo "  support  -> $CLAUDE_TEAM_DIR/scripts"
-echo "  skills   -> $CLAUDE_SKILLS_DIR/paseo-team-lead, paseo-ocr-reviewer, paseo-ultra-review, paseo-premise-audit"
+fi
+echo "  skills   -> ${SKILLS_TARGET:-(none — per project, see --project)}"
 echo ""
+if [[ "$SKILLS_ONLY" -eq 1 ]]; then
+  echo "Next step: confirm the project sees them — cd \"$PROJECT_DIR\" && ls .claude/skills"
+  exit 0
+fi
 echo "Next steps:"
 echo "  1. Merge config/paseo.providers.claude.example.json into ~/.paseo/config.json,"
 echo "     replacing <HOME> with $HOME. Keep daemon.mcp.injectIntoAgents: true —"
@@ -185,7 +292,8 @@ echo "     before widening; never use additionalModels. The built-in \"claude\""
 echo "     provider is disabled so a role-less session cannot start by accident;"
 echo "     the three role providers extend it and keep working."
 echo "  2. Restart the Paseo daemon when NO agent is running: paseo daemon restart"
-echo "     (there is no reload; providers are read at startup)."
+echo "     A 'paseo daemon reload' exists on current builds, but providers are read at"
+echo "     startup — verify with 'paseo provider ls' before trusting a reload."
 echo "  3. Confirm the providers: paseo provider ls | grep claude-"
 echo ""
 echo "     The provider env must point at the directory this installer populated:"
@@ -194,3 +302,8 @@ echo "       PASEO_TEAM_STATE_DIR   = $CLAUDE_TEAM_DIR/state"
 echo "     The bash allowlist compares FULL paths, so if these diverge the Peer's"
 echo "     ask-lead and the watchdog are rejected as unsanctioned commands."
 echo "  4. Check host readiness: node \"$ROLE_PACK_ROOT/scripts/preflight.mjs\""
+echo "  5. Onboard each SLP project separately (the runtime above is host-wide, the"
+echo "     skills are not): copy templates/WORKSPACE_PROTOCOL.example.md to"
+echo "     <project>/WORKSPACE_PROTOCOL.md, then"
+echo "       scripts/install.sh --skills-only --project <project>"
+echo "     Projects you never onboard keep plain Claude Code, untouched. See docs/onboarding.md."

@@ -172,6 +172,29 @@ export function isExactGovernanceGraphCommand(command: string, scriptsDir?: stri
 }
 
 /**
+ * Wake tier: the hung-agent scan, and — only under `--wake` — the prompt that
+ * nudges one. The flag allowlist is closed and every numeric flag must carry a
+ * digits-only value, so a shape like `--max-wakes $(curl …)` never matches.
+ *
+ * Scanning is observation and belongs to both monitor roles. `--wake` is not:
+ * sending a prompt to an agent is a dispatch, and this pack has exactly one
+ * dispatcher. `wakeTierCommandMutates` exists so the Supervisor branch can
+ * allow the first and refuse the second on the SAME sanctioned path, rather
+ * than pinning two filenames and hoping they stay in sync.
+ */
+const WAKE_TIER_SHAPE_RE =
+	/^\s*node\s+(?:"([^"]+)"|'([^']+)'|([^\s'"]+))((?:\s+--wake|\s+--(?:hung-after-ms|probe-gap-ms|max-wakes|max-attempts)\s+\d+)*)\s*$/;
+
+export function isExactWakeTierCommand(command: string, scriptsDir?: string): boolean {
+	return isSanctionedScript(command, WAKE_TIER_SHAPE_RE, scriptsDir, "wake-tier.mjs");
+}
+
+export function wakeTierCommandMutates(command: string): boolean {
+	const match = command.match(WAKE_TIER_SHAPE_RE);
+	return match ? /\s--wake\b/.test(match[4] ?? "") : false;
+}
+
+/**
  * Peers must not drive Claude Code from the shell either — spawning a nested
  * `claude` is the same bypass class as spawning a nested `paseo`.
  *
@@ -317,12 +340,20 @@ export function claudeToolBlockReason(call: ClaudeToolCall): string | null {
 		if (role === "supervisor") {
 			if (isExactWatchdogCommand(command, call.scriptsDir)) return null;
 			if (isExactGovernanceGraphCommand(command, call.scriptsDir)) return null;
-			return "Supervisor shell authority is limited to the read-only watchdog and governance-graph snapshot (no --serve, no --out). Send an observation to the Lead instead.";
+			if (isExactWakeTierCommand(command, call.scriptsDir)) {
+				return wakeTierCommandMutates(command)
+					? "Supervisor may run the wake-tier scan but not --wake: waking an agent sends it a prompt, which is a dispatch, and the Lead is the only dispatcher. Report the plan to the Lead instead."
+					: null;
+			}
+			return "Supervisor shell authority is limited to the read-only watchdog, governance-graph and wake-tier scans (no --serve, no --out, no --wake). Send an observation to the Lead instead.";
 		}
 		if (role === "peer") {
 			if (isExactAskLeadCommand(command, call.scriptsDir)) return null;
 			if (isExactWatchdogCommand(command, call.scriptsDir)) {
 				return "team_watchdog is restricted to Lead and Supervisor agents.";
+			}
+			if (isExactWakeTierCommand(command, call.scriptsDir)) {
+				return "wake-tier is restricted to Lead and Supervisor agents. A Peer observing that a sibling looks hung reports it to the Lead.";
 			}
 			if (callsPaseoCli(command)) {
 				return "Peer cannot drive the Paseo CLI from bash (would bypass the tool policy). Report a DEPENDENCY_REQUEST to the Lead instead.";

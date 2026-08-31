@@ -172,7 +172,11 @@ function authorityHeader(role, brief) {
 	if (role === "peer") {
 		lines.push("", `Ask the Lead with exactly: node ${dir}/team-communication.mjs ask-lead '<json>'`);
 	} else {
-		lines.push("", `Check for hung agents with exactly: node ${dir}/watchdog.mjs '<json>'`);
+		lines.push(
+			"",
+			`Check for hung agents with exactly: node ${dir}/watchdog.mjs '<json>'`,
+			`Decide what to do about them with: node ${dir}/wake-tier.mjs${role === "lead" ? " [--wake]" : ""}`,
+		);
 	}
 	lines.push(
 		"",

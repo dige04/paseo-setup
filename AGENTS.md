@@ -15,7 +15,12 @@ node scripts/check-report-gates.mjs docs/ultrareview   # convergence-gate over G
 node scripts/preflight.mjs --version              # {name, version, policyDigest, fileCount} — cite in artifacts
 node scripts/governance-graph.mjs --assert        # topology invariants A1–A7; exit 3 = violation
 node scripts/eod-digest.mjs --workspace .         # deterministic daily digest
+node scripts/wake-tier.mjs                        # hung-agent scan; exit 3 = somebody must act
 ```
+
+Skills are installed **per project**, never globally:
+`scripts/install.sh --skills-only --project <path>` (requires that project's
+`WORKSPACE_PROTOCOL.md`). See `docs/onboarding.md`.
 
 ## The one rule that catches everyone
 
@@ -54,6 +59,8 @@ CI runs `--check` and fails the PR on drift.
 
 ## Where the rest lives
 
+- `docs/onboarding.md` — host-wide vs per-project split; when NOT to onboard
+- `docs/decisions/` — owner decisions, with the rejected options and their costs
 - `docs/daily-ops.md` — the operating day (dispatch, review lanes, EOD)
 - `docs/anti-patterns.md` — AP catalog + assert-tier wiring status
 - `docs/ultrareview/` — review rounds + architect rulings (the decision record)
