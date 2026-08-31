@@ -15,6 +15,10 @@ Operational checklist for shipping many PRs/day on exactly two providers:
 Every rule below cites its owning doc. Anything marked *(operating default)*
 is an owner-changeable choice, not doctrine.
 
+**New here, or just want the short version?** `docs/use.md` is one page: the
+one-time setup that is easy to skip, the three daily commands, and what each exit
+code means. This file is the full runbook.
+
 ## 1. Morning (5 min)
 
 - [ ] Daemon up: `paseo status` (routing cycle step,
@@ -28,11 +32,16 @@ is an owner-changeable choice, not doctrine.
       — the report carries `mutates:false`; cleanup candidates are requests
       for human review, never archive authority
       (`skills/paseo-team-lead/SKILL.md`).
-- [ ] `node scripts/governance-graph.mjs --assert` (A1–A6 invariants + exit-code
+- [ ] `node scripts/governance-graph.mjs --assert` (A1–A8 invariants + exit-code
       contract in `docs/governance-graph.md` §Assert mode). **Exit 3 = topology
       violation — fix before dispatching anything.** Two writers on one scope
       or a reviewer sharing an engineer's worktree invalidates the day's
-      evidence, not just one task.
+      evidence, not just one task. `cannotVerify` and `advisory: true` entries
+      never block; they are the check naming what it could not answer.
+- [ ] `node scripts/wake-tier.mjs` — hung-agent scan. Exit 3 means somebody must
+      act: a wake candidate, an agent blocked on a permission prompt (which a
+      wake will not fix), or a scan that could see nothing. `--wake` is the
+      Lead's, never the Supervisor's — sending an agent a prompt is a dispatch.
 
 ## 2. Dispatch
 

@@ -59,6 +59,7 @@ CI runs `--check` and fails the PR on drift.
 
 ## Where the rest lives
 
+- `docs/use.md` — **start here**: one-time setup, three daily commands, exit codes
 - `docs/onboarding.md` — host-wide vs per-project split; when NOT to onboard
 - `docs/decisions/` — owner decisions, with the rejected options and their costs
 - `docs/daily-ops.md` — the operating day (dispatch, review lanes, EOD)

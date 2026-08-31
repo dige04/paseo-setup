@@ -79,6 +79,12 @@ settings file that the provider passes with `--settings`, so a plain `claude`
 session is untouched — and even if it were loaded globally, the hook exits 0
 immediately when `PASEO_CLAUDE_ROLE` is unset.
 
+## Using it day to day
+
+[`docs/use.md`](docs/use.md) is one page — the one-time setup that is easy to skip
+(and that nothing else works without), the three commands you run daily, and what
+each exit code means. [`docs/daily-ops.md`](docs/daily-ops.md) is the full runbook.
+
 ## Roles
 
 | Provider | Role | Authority |
