@@ -7,6 +7,18 @@
         "rule": "overused-font",
         "value": "geist",
         "createdAt": "2026-08-31T08:25:53.311Z"
+      },
+      {
+        "rule": "overused-font",
+        "value": "geist mono",
+        "createdAt": "2026-08-31T08:40:34.078Z",
+        "reason": "diagram-design skill mandated typography; user confirmed brand out of scope"
+      },
+      {
+        "rule": "overused-font",
+        "value": "instrument serif",
+        "createdAt": "2026-08-31T08:40:34.102Z",
+        "reason": "diagram-design skill mandated typography; user confirmed brand out of scope"
       }
     ]
   }
