@@ -47,7 +47,7 @@
  *   node scripts/governance-graph.mjs                 # scope: cwd, to stdout
  *   node scripts/governance-graph.mjs --all --out g.json
  *   node scripts/governance-graph.mjs --serve 7788    # viewer + live JSON
- *   node scripts/governance-graph.mjs --assert        # invariants A1–A7, exit 3 on violation
+ *   node scripts/governance-graph.mjs --assert        # invariants A1–A8, exit 3 on violation
  */
 
 import { execFile } from "node:child_process";
@@ -551,6 +551,7 @@ export const ASSERT_RULES = Object.freeze({
   A5: "supervisor-not-observe-only",
   A6: "count-integrity",
   A7: "role-record-vs-mechanism",
+  A8: "unrecorded-orchestrator",
 });
 
 /**
@@ -1103,6 +1104,90 @@ export function assertTopology(graph) {
     }
   }
 
+  // A8 — an agent that ORCHESTRATES while carrying no authority record.
+  //
+  // This is the gap between A4 and A5. Those two ask "is this orchestrator the
+  // wrong ROLE?" — a peer, a supervisor — and both need a role before they can
+  // answer. The seat that matters most here has none: a standing Lead on a bare
+  // `claude` provider carries no suffix the pack reads and no `harness.role`
+  // label, so its role resolves to `unknown` and every role-keyed rule falls
+  // straight through it. It is invisible to the entire tier while being the one
+  // seat whose children arrive unaccounted for.
+  //
+  // So this rule asks nothing about role. It is built from two facts the graph
+  // can both read: a recorded `ParentAgentId` (this agent created that one) and
+  // a completed role sweep that returned no record for it. Orchestration is an
+  // act, not a title, and an act with no authority record behind it is exactly
+  // the thing the label schema exists to make impossible.
+  //
+  // WHY IT MATTERS OPERATIONALLY: the create-time label gate binds by CREATOR.
+  // It fires only when the seat calling create_agent is itself armed with
+  // PASEO_CLAUDE_ROLE. An unrecorded orchestrator never arms it, so its
+  // children arrive with no record either — which A3 then reports one scope at
+  // a time, as anonymous strays, with no way to say where they came from. This
+  // entry supplies the attribution A3 cannot: which seat made them, from
+  // ParentAgentId, not from sharing a directory.
+  //
+  // ADVISORY, NOT EXIT 3, and this is the part not to "tidy up" later. Running
+  // a standing Lead on a bare `claude` seat is a legitimate way to work — it is
+  // how most of this repo was built — and a rule that turns the morning gate red
+  // on somebody's ordinary workflow is a rule that gets ignored, taking the rest
+  // of the gate with it. That failure has a catalog entry (AP-05) and this pack
+  // has now paid for it twice in one day. Prevention is also not on the table:
+  // measured 2026-09-01, disabling the base provider neither holds (the daemon
+  // rewrites it) nor is acceptable (it breaks every ungoverned project on the
+  // host). Detection is what is actually available, so detection is what this
+  // ships, and it says so instead of implying a bound it does not have.
+  //
+  // GUARDED ON THE SWEEP for the same reason A3's residue clause is: with an
+  // incomplete sweep every agent looks unlabelled, and this rule would accuse
+  // every orchestrator on the fleet at once.
+  //
+  // MEASURED COVERAGE, and the limit is bigger than the rule. On this host
+  // 2026-09-01: 139 agents, 9 `delegates` edges, all 9 from `claude-lead` or
+  // `claude-supervisor` seats — A8 fires ZERO times. That is a finding about the
+  // fleet, not evidence the check works, and it must not be read as coverage.
+  //
+  // The limit: an edge exists only where Paseo recorded a `ParentAgentId`, which
+  // it does for `create_agent` and NOT for an agent a human opened from the app
+  // or the CLI. Checked directly the same day — the three unlabelled post-epoch
+  // strays that motivated this rule (and the standing Lead itself) all report
+  // `ParentAgentId: null`. They were opened by a person, so no edge exists and
+  // A8 cannot see them at all.
+  //
+  // So A8 closes the agent-created half and the human-created half stays open,
+  // permanently, at this layer: the graph cannot know who opened a window. A3
+  // still REPORTS those strays — what is unavailable is attribution, and no
+  // amount of inference over shared directories would make it available, only
+  // make it look available. Recorded as an upstream ask (a created-by field),
+  // not worked around.
+  if (sweepUsable) {
+    for (const source of [...delegateTargets.keys()].sort()) {
+      const orchestrator = byId.get(source);
+      if (!orchestrator) continue;
+      // ONE guard, and it covers both cases on purpose. A role that is known —
+      // from a label OR from a provider suffix — already has an owner: A4 for a
+      // peer, A5 for a supervisor, and a recorded lead orchestrating is the
+      // intended shape. Reporting any of them here would bill one seat to two
+      // rules and inflate every count downstream.
+      //
+      // A `roleSource === "label"` guard alongside this one is REDUNDANT and was
+      // removed after a mutation probe survived it: a label puts its value into
+      // `role`, so a labelled agent is never `unknown` and the second guard
+      // could never be the one that fired. A guard no mutation can kill is not a
+      // guard, it is a comment that costs a branch.
+      if (orchestrator.role !== "unknown") continue;
+      const targets = delegateTargets.get(source).sort();
+      const unrecordedKids = targets.filter((id) => byId.get(id)?.roleSource !== "label");
+      const inherited = unrecordedKids.length > 0
+        ? `${unrecordedKids.length} of the ${targets.length} agent(s) it created carry no ${ROLE_LABEL_KEY} record either [${unrecordedKids.sort().join(", ")}]`
+        : `every agent it created does carry a record, so something else labelled them — the gate did not fire from here`;
+      cannotVerify.push(entry("A8", source, [source, ...targets],
+        `ADVISORY (not a violation): agent ${source} on ${orchestrator.provider || "(no provider)"} (${orchestrator.enforcement}) parents delegation edge(s) to [${targets.join(", ")}] while answering to no ${ROLE_LABEL_KEY} value in {${sweptValues}}. Orchestration is an act, and this one has no authority record behind it. The create-time label gate binds by CREATOR, so an unarmed creator produces unaccounted children: ${inherited}. Running this seat on claude-lead arms the gate for everything it creates afterwards; nothing here can force that, which is why this is reported and not denied`,
+        { advisory: true }));
+    }
+  }
+
   const byIdOrder = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   violations.sort(byIdOrder);
   cannotVerify.sort(byIdOrder);
@@ -1371,7 +1456,7 @@ Options:
   --cwd <path>     scope to one workspace
   --out <file>     write the JSON to a file
   --serve [port]   loopback viewer + live JSON (default port 7788)
-  --assert         evaluate topology invariants A1–A7 over the collected graph
+  --assert         evaluate topology invariants A1–A8 over the collected graph
                    and print { ok, violations, cannotVerify, meta }
   --help, -h       this text
 

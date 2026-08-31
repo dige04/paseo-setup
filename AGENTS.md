@@ -13,7 +13,7 @@ npm run typecheck                                 # tsc over extensions/**.mts
 node scripts/policy-digest.mjs --check            # governed bytes vs manifest.json
 node scripts/check-report-gates.mjs docs/ultrareview   # convergence-gate over Gate: v1 reports
 node scripts/preflight.mjs --version              # {name, version, policyDigest, fileCount} — cite in artifacts
-node scripts/governance-graph.mjs --assert        # topology invariants A1–A7; exit 3 = violation
+node scripts/governance-graph.mjs --assert        # topology invariants A1–A8; exit 3 = violation
 node scripts/eod-digest.mjs --workspace .         # deterministic daily digest
 node scripts/wake-tier.mjs                        # hung-agent scan; exit 3 = somebody must act
 ```

@@ -159,12 +159,15 @@ assert.deepEqual(Object.keys(MODE_POSTURES.agy).sort(),
   ["accept-edits", "dangerously-skip-permissions", "default", "plan"]);
 
 // Every rule entry carries the rule slug so a reader never has to decode A-codes.
-assert.deepEqual(Object.keys(ASSERT_RULES), ["A1", "A2", "A3", "A4", "A5", "A6", "A7"]);
+assert.deepEqual(Object.keys(ASSERT_RULES), ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]);
 // A3's slug changed with its meaning: it no longer reports "no recognized
 // provider suffix", it reports a missing governance RECORD, which is a
 // different question with a different answer for the same agent.
 assert.equal(ASSERT_RULES.A3, "missing-role-record-in-governed-scope");
 assert.equal(ASSERT_RULES.A7, "role-record-vs-mechanism");
+// A8 is deliberately not role-keyed: it names an ACT, because the seat it
+// exists to catch has no role for a role-keyed rule to read.
+assert.equal(ASSERT_RULES.A8, "unrecorded-orchestrator");
 // The epoch is a recorded constant, not a computed "now": a moving epoch would
 // re-judge yesterday's agents every morning.
 assert.equal(SCHEMA_EPOCH, "2026-08-31T12:00:00Z");
@@ -799,6 +802,107 @@ for (const status of ["closed", "idle"]) {
   const cv = byRule(cannotVerify, "A5");
   assert.equal(cv.length, 1);
   assert.match(cv[0].evidence, /observe-only cannot be confirmed/);
+}
+
+// ---------------------------------------------------------------------------
+// A8 — orchestration with no authority record. This is the gap between A4 and
+// A5: both need a ROLE before they can judge an orchestrator, and the seat that
+// matters most has none. A standing Lead on bare `claude` carries no suffix the
+// pack reads and no label, so it resolves to role=unknown and every role-keyed
+// rule falls through it — while being the one seat whose children arrive
+// unaccounted for.
+// ---------------------------------------------------------------------------
+
+{
+  const { violations, cannotVerify } = assertTopology(graphOf([
+    agent("boss", "unknown", { mode: "bypassPermissions" }),
+    agent("kid-1", "unknown", { mode: "plan", parentAgentId: "boss" }),
+  ]));
+  assert.deepEqual(byRule(violations, "A8"), [], "A8 never blocks: prevention is not available here");
+  const a8 = byRule(cannotVerify, "A8");
+  assert.equal(a8.length, 1, "an unrecorded orchestrator must be reported");
+  assert.equal(a8[0].advisory, true);
+  assert.deepEqual(a8[0].agents, ["boss", "kid-1"]);
+  assert.match(a8[0].evidence, /parents delegation edge/);
+  assert.match(a8[0].evidence, /no authority record behind it/);
+  // The attribution A3 cannot supply: which seat made the unlabelled strays.
+  assert.match(a8[0].evidence, /1 of the 1 agent\(s\) it created carry no harness\.role record either/);
+  assert.match(a8[0].evidence, /binds by CREATOR/);
+}
+
+// It says the opposite just as plainly. If the children DO carry records, the
+// gate did not fire from this seat, and the advisory must not imply it did.
+{
+  const { cannotVerify } = assertTopology(graphOf([
+    agent("boss", "unknown", { mode: "bypassPermissions" }),
+    agent("kid-1", "peer", { mode: "plan", parentAgentId: "boss", provider: "omp", labelRole: "peer" }),
+  ]));
+  const a8 = byRule(cannotVerify, "A8");
+  assert.equal(a8.length, 1);
+  assert.match(a8[0].evidence, /every agent it created does carry a record/);
+  assert.match(a8[0].evidence, /the gate did not fire from here/);
+}
+
+// No double-counting. A4 and A5 already own the orchestrators whose role IS
+// known; reporting them again under A8 would bill one seat to two rules and
+// inflate every count downstream of the assert.
+//
+// `labelRole: null` is the whole point of this fixture and not a detail. With a
+// label the seat would be skipped for carrying a record, and the test would pass
+// while proving nothing about the role guard — which is exactly how the first
+// version of it let a double-counting mutation survive. Here the role comes from
+// the PROVIDER SUFFIX alone, so the role guard is the only thing that can stop
+// A8 firing.
+for (const [role, owner] of [["peer", "A4"], ["supervisor", "A5"]]) {
+  const { violations, cannotVerify } = assertTopology(graphOf([
+    agent("boss", role, { mode: "plan", labelRole: null }),
+    agent("kid-1", "peer", { mode: "plan", parentAgentId: "boss", labelRole: null }),
+  ]));
+  assert.equal(byRule(violations, owner).length, 1, `${owner} still owns a ${role} orchestrator`);
+  assert.deepEqual(byRule(cannotVerify, "A8"), [], `A8 must not double-count the ${role} case`);
+}
+
+// A LEAD that orchestrates is the intended shape, and it must stay silent even
+// when it carries no label — the role is legible from the provider suffix, which
+// is the mechanism arming the hook on that seat.
+{
+  const { violations, cannotVerify } = assertTopology(graphOf([
+    agent("lead-1", "lead", { mode: "plan", labelRole: null }),
+    agent("kid-1", "peer", { mode: "plan", parentAgentId: "lead-1", labelRole: null }),
+  ]));
+  assert.deepEqual(byRule(violations, "A8"), []);
+  assert.deepEqual(byRule(cannotVerify, "A8"), [], "a lead dispatching peers is the shape this pack is for");
+}
+
+// The discrimination, on one axis: identical topology, and the ONLY difference
+// is whether the orchestrator's seat carries a legible role. That is the line
+// A8 draws, so it is asserted directly rather than inferred from two fixtures.
+{
+  const build = (bossRole, provider) => assertTopology(graphOf([
+    agent("boss", bossRole, { mode: "bypassPermissions", labelRole: null, provider }),
+    agent("kid-1", "unknown", { mode: "plan", parentAgentId: "boss", labelRole: null }),
+  ]));
+  assert.equal(byRule(build("lead", "claude-lead").cannotVerify, "A8").length, 0, "legible seat: silent");
+  assert.equal(byRule(build("unknown", "claude").cannotVerify, "A8").length, 1, "illegible seat: reported");
+}
+
+// An agent that orchestrates nothing is not an orchestrator, whatever it lacks.
+{
+  const { cannotVerify } = assertTopology(graphOf([agent("solo", "unknown", { mode: "bypassPermissions" })]));
+  assert.deepEqual(byRule(cannotVerify, "A8"), []);
+}
+
+// Guarded on the sweep, exactly as A3's residue clause is. With an incomplete
+// sweep every agent looks unlabelled, and this rule would accuse every
+// orchestrator on the fleet at once for a reason that is about the sweep.
+{
+  const g = graphOf([
+    agent("boss", "unknown", { mode: "bypassPermissions" }),
+    agent("kid-1", "unknown", { mode: "plan", parentAgentId: "boss" }),
+  ]);
+  g.meta.roleSweep = { known: false, errors: ["daemon refused the selector"] };
+  assert.deepEqual(byRule(assertTopology(g).cannotVerify, "A8"), [],
+    "an incomplete sweep must suppress A8, not accuse everyone");
 }
 
 // ---------------------------------------------------------------------------

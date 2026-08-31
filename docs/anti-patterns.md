@@ -137,10 +137,10 @@ stays meaningful without git history.
 | AP-05 | not yet — neutral question at review time; candidate signal: a diff touching `$HOME` outside `~/.claude/paseo-team/` | pattern |
 | AP-04 | `checkReportGate()` in `ultra-review-report.mjs`, called by `eod-digest.mjs` AND by CI via `scripts/check-report-gates.mjs` (exit wiring proven by `test/check-report-gates.test.mjs`); mandatory root-cause reopen in `paseo-ultra-review` SKILL | **mechanism** (gate — two automatic callers) + rule (reopen) |
 
-The deterministic assert tier is `A1–A7` as shipped in `governance-graph.mjs`
+The deterministic assert tier is `A1–A8` as shipped in `governance-graph.mjs`
 (`A1` one-writer-per-scope, `A2` writer-is-acceptor, `A3` missing-role-record-in-governed-scope,
 `A4` peer-orchestrates, `A5` supervisor-not-observe-only, `A6` count-integrity,
-`A7` role-record-vs-mechanism) and is tracked in `docs/governance-graph.md`, not here —
+`A7` role-record-vs-mechanism, `A8` unrecorded-orchestrator) and is tracked in `docs/governance-graph.md`, not here —
 this file is for *model behavior* patterns that need an episode trail.
 
 **Vacuum closed (F015, 2026-08-31).** The previous note here recorded `A1`'s

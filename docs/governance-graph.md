@@ -163,6 +163,7 @@ the built graph with the pure `assertTopology(graph)`, and prints
 | `A3-missing-role-record-in-governed-scope` | an agent in a governed scope carrying no `harness.role` record (the **residue clause**) | yes if created after the schema epoch · advisory before it |
 | `A4-peer-orchestrates` | a peer that parents any `delegates` edge | yes |
 | `A5-supervisor-not-observe-only` | a supervisor that parents `delegates` edges (fact) / holds a write-capable mode (posture) | delegation yes **while the supervisor is running** · closed-delegation advisory · posture advisory |
+| `A8-unrecorded-orchestrator` | an agent that parents `delegates` edges while answering to no `harness.role` value | advisory only — see below |
 | `A6-count-integrity` | `meta` presenting a capped, partial, or **empty** scan as a total | yes |
 | `A7-role-record-vs-mechanism` | `harness.role` disagreeing with the provider suffix; also a pack-enforced seat whose record answers to no swept value | yes on a pack-enforced seat with a contradictory swept record · `cannotVerify` for an unconfirmed record and for any non-pack-enforced seat |
 
@@ -269,6 +270,30 @@ assurance:
   A5 violation, exit 3) paired with its negative half (same fixture, supervisor
   closed → exit 0 *and* the advisory still present). Without both, the split is
   indistinguishable from switching the leg off.
+
+- **A8 names an ACT, not a role, and it is advisory on purpose.** A4 and A5 both
+  need a role before they can judge an orchestrator, and the seat that matters
+  most has none: a standing Lead on bare `claude` carries no suffix the pack
+  reads and no label, so it resolves to `unknown` and every role-keyed rule falls
+  through it. A8 asks only about facts the graph can both read — a recorded
+  `ParentAgentId`, and a completed sweep that returned no record. It stays an
+  advisory because running a Lead that way is a legitimate workflow, and a rule
+  that reddens the morning gate on somebody's ordinary practice gets ignored,
+  taking the rest of the gate with it (AP-05). Prevention is not available:
+  measured 2026-09-01, disabling the base provider neither holds nor is
+  acceptable.
+- **A8 currently fires zero times, and that is a fact about the fleet, not
+  coverage.** Measured 2026-09-01: 139 agents, 9 `delegates` edges, all 9 from
+  `claude-lead` or `claude-supervisor`. **The half it cannot reach is the bigger
+  one.** An edge exists only where Paseo recorded a `ParentAgentId`, which it
+  does for `create_agent` and not for an agent a human opened from the app or
+  CLI — the three unlabelled post-epoch strays that motivated the rule, and the
+  standing Lead itself, all report `ParentAgentId: null`. A3 still reports those
+  strays; what is missing is *attribution*, and it is missing permanently at this
+  layer because the graph cannot know who opened a window. An upstream
+  created-by field is recorded as an ask. Do not close this by inferring
+  parentage from a shared directory: that would not make attribution available,
+  only make it look available.
 
 - **A2 and A5-posture stay advisories**, and F015 is no longer the reason.
   They rest on `Mode`, which is not authority on a pack-enforced seat in either
