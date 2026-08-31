@@ -42,6 +42,21 @@ paseo agent update <id> --label harness.role=peer     # verified working
 
 ---
 
+## After every `git pull` on this pack
+
+The runtime is deployed to `~/.claude/paseo-team/`, and a pull does **not** update
+it. Agents keep enforcing whatever was deployed last.
+
+```bash
+./scripts/install.sh --skip-ocr    # redeploy the runtime
+node scripts/preflight.mjs         # exit 0 = deployed policy == this checkout
+```
+
+Measured 2026-09-01 on this pack's own host: the deploy was missing seven support
+scripts and its hook carried none of that day's gates, while every existing-file
+check passed clean. `preflight` now compares the deployed `policyDigest` against
+this checkout and **fails** on a mismatch, so the drift is loud instead of silent.
+
 ## Every day
 
 ```bash

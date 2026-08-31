@@ -275,6 +275,42 @@ let daemonUp = false;
 		pass("claude-runtime", claudeDir);
 	}
 
+	// DEPLOYED-POLICY DRIFT. The checks above prove the runtime files EXIST.
+	// They say nothing about which policy those files contain, and that gap is
+	// occupied, not theoretical: measured 2026-09-01 on this pack's own host, the
+	// deploy dir was missing seven support scripts and its hook carried none of
+	// that day's gates, while every existing-file check passed clean. Agents had
+	// been enforcing an older policy for an unknown length of time and nothing
+	// said so.
+	//
+	// This compares the DEPLOYED manifest against this checkout's. A repo-only
+	// digest check (`policy-digest.mjs --check`) cannot see this: it compares the
+	// repo to its own manifest, and both sides move together on every commit.
+	//
+	// FAIL, not warn, and the severity is deliberate. A missing runtime is a
+	// legitimate configuration (a Pi-only host), so that stays a warning. A
+	// runtime that exists and disagrees is the hook firing with rules nobody in
+	// this checkout reviewed — the same class as "the hook silently never fires",
+	// which is already loud here.
+	if (missing.length === 0) {
+		const deployedManifest = join(claudeDir, "manifest.json");
+		if (!existsSync(deployedManifest)) {
+			fail("claude-policy-drift", `${claudeDir}: no manifest.json → the deployed policy cannot be attributed to any version. Re-run scripts/install.{sh,ps1}`);
+		} else {
+			try {
+				const deployed = JSON.parse(readFileSync(deployedManifest, "utf8")).policyDigest;
+				const here = policyDigest().policyDigest;
+				if (deployed !== here) {
+					fail("claude-policy-drift", `${claudeDir} runs ${deployed ?? "(no digest)"} but this checkout is ${here} → agents are enforcing a policy that is not the one here. Re-run scripts/install.{sh,ps1}`);
+				} else {
+					pass("claude-policy-drift", `deployed policy matches this checkout (${deployed})`);
+				}
+			} catch (error) {
+				fail("claude-policy-drift", `${deployedManifest} is unreadable (${String(error?.message ?? error)}) → the deployed policy cannot be attributed`);
+			}
+		}
+	}
+
 	// The settings file is what the provider passes with --settings. A hook path
 	// that does not resolve means the policy silently never fires, which is the
 	// one failure mode worth being loud about.

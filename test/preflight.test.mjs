@@ -8,6 +8,8 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -89,6 +91,85 @@ const envelopeOf = (result) => {
 	const result = run(["--cluster", "--version"]);
 	assert.equal(result.status, 2);
 	assert.equal(envelopeOf(result)?.error, "missing_flag_value");
+}
+
+// ---------------------------------------------------------------------------
+// DEPLOYED-POLICY DRIFT. Every other runtime check here asks whether the files
+// EXIST. None asked which policy they contain, and that gap was occupied: on
+// this pack's own host 2026-09-01 the deploy dir was missing seven support
+// scripts and its hook carried none of that day's gates, while every
+// existing-file check passed clean. Agents had been enforcing an older policy
+// for an unknown length of time and nothing said so.
+//
+// Driven through the real process boundary with CLAUDE_TEAM_DIR pointed at a
+// sandbox, because the whole failure is that a *deployed* artifact disagrees
+// with this checkout — something no in-process assertion can stage.
+{
+	const runWithDeploy = (dir) =>
+		spawnSync(NODE, [SCRIPT], {
+			encoding: "utf8",
+			timeout: 60_000,
+			cwd: ROOT,
+			env: { ...process.env, CLAUDE_TEAM_DIR: dir },
+		});
+	const lineFor = (result) =>
+		String(result.stdout ?? "").split("\n").find((l) => l.includes("claude-policy-drift")) ?? "";
+
+	const sandbox = mkdtempSync(join(tmpdir(), "preflight-deploy-"));
+	const runtimeFiles = ["claude-team-hook.mjs", "claude-policy.mts", "policy-core.mts"];
+	for (const f of runtimeFiles) writeFileSync(join(sandbox, f), "// stub\n");
+
+	// A deploy with no manifest cannot be attributed to any version at all.
+	{
+		const result = runWithDeploy(sandbox);
+		assert.match(lineFor(result), /✗ claude-policy-drift/, "an unattributable deploy must fail");
+		assert.match(lineFor(result), /no manifest\.json/);
+		assert.equal(result.status, 1, "drift must drive a nonzero exit, not just a printed line");
+	}
+
+	// A deploy carrying a DIFFERENT digest is the real case: the hook fires, and
+	// it enforces rules nobody in this checkout reviewed.
+	{
+		writeFileSync(join(sandbox, "manifest.json"), JSON.stringify({ policyDigest: "sha256:" + "0".repeat(64) }));
+		const result = runWithDeploy(sandbox);
+		assert.match(lineFor(result), /✗ claude-policy-drift/);
+		assert.match(lineFor(result), /enforcing a policy that is not the one here/);
+		assert.equal(result.status, 1);
+	}
+
+	// Matching digests pass. Without this half the check could be a constant
+	// failure and every assert above would still be green.
+	{
+		const here = JSON.parse(
+			String(spawnSync(NODE, [SCRIPT, "--version"], { encoding: "utf8", cwd: ROOT }).stdout),
+		).policyDigest;
+		writeFileSync(join(sandbox, "manifest.json"), JSON.stringify({ policyDigest: here }));
+		const result = runWithDeploy(sandbox);
+		assert.match(lineFor(result), /✓ claude-policy-drift/, "a matching deploy must pass");
+		assert.match(lineFor(result), /matches this checkout/);
+	}
+
+	// A corrupt manifest is unattributable, not "probably fine".
+	{
+		writeFileSync(join(sandbox, "manifest.json"), "{ not json");
+		const result = runWithDeploy(sandbox);
+		assert.match(lineFor(result), /✗ claude-policy-drift/);
+		assert.match(lineFor(result), /unreadable/);
+	}
+
+	// An ABSENT runtime stays a warning, not a failure: a Pi-only host is a
+	// legitimate configuration, and escalating it would make the drift check
+	// punish people who never installed the Claude runtime at all.
+	{
+		const empty = mkdtempSync(join(tmpdir(), "preflight-nodeploy-"));
+		const result = runWithDeploy(empty);
+		assert.equal(lineFor(result), "", "no runtime → no drift verdict at all");
+		assert.match(
+			String(result.stdout).split("\n").find((l) => l.includes("claude-runtime")) ?? "",
+			/⚠ claude-runtime/,
+			"a missing runtime is a warning, not a drift failure",
+		);
+	}
 }
 
 console.log("preflight tests passed");

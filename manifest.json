@@ -1,7 +1,7 @@
 {
   "schema": "paseo.team-policy-digest/v1",
   "version": "0.1.0",
-  "policyDigest": "sha256:55a55f65495f5e94b3f8a41dd6732cda75291bb841bb977d7e6d34c300452d31",
+  "policyDigest": "sha256:a65d8f2bc4427475471c785584abad9596ddf9e6d7efbe7bee34a6e3513ae732",
   "fileCount": 47,
   "files": {
     ".github/workflows/ci.yml": "sha256:5b813228638034fe89b139086053b5242c2dbf911b003341edfc655ea3ae275b",
@@ -24,7 +24,7 @@
     "scripts/ocr-review.mjs": "sha256:b200e4414f1ba9c9a6421826670b1519f461274b4c05f2df852872e905d84fa3",
     "scripts/ocr-setup.mjs": "sha256:905050dd5f95aecc2e902591e278c5392966a618c64723c013ed744e36bde73a",
     "scripts/policy-digest.mjs": "sha256:f846ee8980c3f402a3e1fc2c0144be60641d6702e7c2b8e7dcc3e32b83142117",
-    "scripts/preflight.mjs": "sha256:05ef090beb2428ff1a69bc6ddb2aa7cb3f969cab9d981e4526cc3146dd85d717",
+    "scripts/preflight.mjs": "sha256:b5a50ff7a41e4991556d9a459add9bf2648551d0dc8c5a1f13948dc11e78e293",
     "scripts/reconcile-core.mjs": "sha256:0c0cbbf67f8e19c3e69a585df57580fdc07ad8a110ccf20f4c1483a7c3ca5f06",
     "scripts/reconcile-observer.mjs": "sha256:e7f6b77ca5b1644caa025290db6a6bf2565e443e6f4b7b4fc677521958d84490",
     "scripts/reliability.mjs": "sha256:9a1ab5a53d9761e401922e27cd9c9fee4b0eb473ad36a06b212adbd073dfe3c3",
