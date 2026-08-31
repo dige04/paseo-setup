@@ -134,6 +134,7 @@ stays meaningful without git history.
 | AP-01 / AP-01r | not yet — needs diff+typecheck integration in the review lane | pattern |
 | AP-02 | `test/reconcile-qualification.test.mjs` + rule in review instruments; `governance-graph` A1/A3 positive controls in `test/governance-graph-assert.test.mjs` reach exit 3 through the real CLI | **mechanism** |
 | AP-03 | not yet — greppable signals, candidate for `governance-graph --assert` | candidate |
+| AP-05 | not yet — neutral question at review time; candidate signal: a diff touching `$HOME` outside `~/.claude/paseo-team/` | pattern |
 | AP-04 | `checkReportGate()` in `ultra-review-report.mjs`, called by `eod-digest.mjs` AND by CI via `scripts/check-report-gates.mjs` (exit wiring proven by `test/check-report-gates.test.mjs`); mandatory root-cause reopen in `paseo-ultra-review` SKILL | **mechanism** (gate — two automatic callers) + rule (reopen) |
 
 The deterministic assert tier is `A1–A7` as shipped in `governance-graph.mjs`
@@ -156,6 +157,44 @@ the recorded schema epoch, is a violation) and `A7`. The suppression clauses sti
 and still must not be "simplified": A1 also earns its keep by NOT crying wolf (idle seats
 → one advisory; spelling splits → one canonical scope), and quiet is now a finding about
 the fleet rather than a property of the check.
+
+## AP-05 — a host-wide default that assumes a dedicated host
+id:          AP-05
+name:        governance default applied to a machine that also runs ungoverned work
+bucket:      role_global
+severity:    high
+state:       pattern       # 2 episodes in one day, both caught by the owner, not by any check
+detector:
+  kind:      neutral-question
+  signals:
+    - the change writes somewhere shared by every project on the machine
+      (~/.claude/skills, ~/.paseo/config.json, a global npm package, PATH,
+      a shell profile, a daemon-level provider or provider default)
+    - the justification is phrased as "so X cannot happen by accident",
+      where X is only possible in a GOVERNED project
+    - no sentence anywhere states what the change does to a project that
+      never opted in
+question:    "Máy này có project nào KHÔNG dùng bộ này không? Thay đổi này làm
+              gì với chúng? Nếu câu trả lời là 'gãy' thì cái giá đang rơi vào
+              đa số để đổi lấy một bảo đảm ở thiểu số."
+action:      Scope it to the opting-in project, or ship it as DETECTION. A
+             host-wide default is only defensible when the host is dedicated,
+             and this pack is designed to land on machines that are not.
+episodes:
+  - 2026-08-31 — the five pack skills installed to ~/.claude/skills, offering an
+    SLP workflow to every session on a host where most projects are plain Claude
+    Code. Owner: *"không phải dự án nào cũng cần dùng cơ chế SLP này nên đừng để
+    skill ở cấp global"*. Fixed: skills are per project, opt-in via
+    WORKSPACE_PROTOCOL.md.
+  - 2026-09-01 — the built-in `claude` provider disabled in ~/.paseo/config.json
+    "so a role-less session cannot start by accident", which breaks every non-SLP
+    project on the machine. Owner: *"có những project đơn giản t k cần SLP cơ mà?
+    t dùng thuần thôi"*. Reverted; the example config and its installer-contract
+    assertion now ship `enabled: true` with the reasoning inline.
+note:        The second episode was authored **in the same change set** that fixed
+             the first. Knowing the principle did not transfer to the next
+             surface, which is why this is a checklist item and not advice: the
+             failure is one of ATTENTION, not knowledge (docs/self-improve.md).
 
 ## AP-04 — symptom-patching a converged root
 

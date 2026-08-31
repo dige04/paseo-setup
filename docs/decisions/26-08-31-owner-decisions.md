@@ -7,7 +7,13 @@ have to reconstruct the reasoning from a diff.
 
 ---
 
-## D1 · The standing Lead moves to a hooked seat — **accepted**
+## D1 · The standing Lead moves to a hooked seat — **accepted, then WITHDRAWN**
+
+> **Status 2026-09-01: the mechanism chosen for D1 was wrong and has been reverted
+> on this host and in the shipped example config.** The goal stands; the means was
+> a mistake. Read the withdrawal at the end of this section before the history
+> above it — the earlier paragraphs are kept because a decision record that quietly
+> deletes its wrong turns teaches nothing.
 
 **The problem.** The create-time label gate binds by **creator**: it fires only
 when the seat calling `create_agent` is itself armed with `PASEO_CLAUDE_ROLE`.
@@ -109,6 +115,47 @@ follow:
   already supports (`enforcementClass` separates `pack-enforced` from unenforced
   seats). That is the honest form of D1, and it is detection, like everything else
   in this pack that touches a seat the hook cannot reach.
+
+### WITHDRAWN — it breaks the projects that are supposed to be plain
+
+The owner, on being told `claude` was disabled deliberately:
+
+> *"k được nhé, có những project đơn giản t k cần SLP cơ mà? t dùng thuần thôi"*
+
+That is correct and it should not have taken an owner to catch it. **The same
+person had already stated the constraint the day before** — most projects on this
+host do not run SLP, which is exactly why the skills were moved out of the global
+scope in this very round. I applied a pack default that assumes a
+dedicated-to-SLP host to a host that is explicitly mixed, and did it while
+implementing the change that says hosts are mixed.
+
+Disabling the base `claude` seat does not merely fail to prevent the thing it
+targets. It **breaks every non-SLP project on the host** — the majority — in order
+to guard against a mistake in the minority that are governed. Wrong trade, and the
+cost lands on the common case.
+
+**Reverted, in three places.**
+
+1. `~/.paseo/config.json` → `claude` back to `enabled: true`, reloaded, verified
+   `available  Enabled` alongside all three role providers.
+2. `config/paseo.providers.claude.example.json` → ships `"claude": {"enabled": true}`.
+3. `test/installer-contract.test.mjs` → now asserts the base provider is **enabled**,
+   with the reasoning inline so the next person does not re-derive the old default.
+
+**What survives of D1.** The goal — a Lead on a hooked seat, so create-time labels
+fire — is unchanged and still worth having. Its means is now what it should always
+have been: start the standing Lead on `claude-lead` (a dispatch discipline), and
+**detect** a Lead sitting anywhere else. `governance-graph` already separates
+`pack-enforced` from unenforced seats; wiring that into the morning gate is the
+open work. Prevention was never available here, and pretending otherwise produced
+two wrong instructions in one day.
+
+**The general lesson, for the anti-pattern catalog.** A default that is correct for
+a dedicated host becomes a defect on a shared one. This pack ships onto machines
+that run governed and ungoverned projects side by side, so every host-wide setting
+it recommends must be checked against "what does this do to a project that never
+opted in?" The skills-in-global-scope defect and this one are the **same defect**,
+found twice in one day, by the owner both times.
 
 **Separate host issue found while measuring, not caused by any of this.** The same
 `provider-snapshot-manager` failed 14 times with `Timed out waiting for OMP to

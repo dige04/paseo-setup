@@ -634,65 +634,42 @@
   </p>
 
   <div class="decision">
-    <h4>1 · Đổi chỗ ngồi của Lead — <span class="done">đã làm</span></h4>
-    <p class="dl">Chốt</p>
-    <p>Tắt chỗ ngồi trống. Từ nay không mở được phiên nào không mang vai.</p>
-    <p class="dl">Đã làm</p>
+    <h4>1 · Đổi chỗ ngồi của Lead — <span class="done">đã rút lại</span></h4>
+    <p class="dl">Chốt ban đầu, và vì sao nó sai</p>
     <p>
-      Thêm một dòng vào <code>~/.paseo/config.json</code>. Đây đúng là bước 1 của trình cài đặt,
-      trước giờ chưa từng được merge trên máy này. Có backup, đổi lại được trong 10 giây.
-    </p>
-    <p class="dl">Hướng dẫn của tôi đã sai — và lần restart chứng minh điều đó</p>
-    <p>
-      Anh restart theo đúng lời tôi dặn. Sau restart, config bị ghi ngược thành <code>true</code>.
-      Diff bản backup với bản sau restart: <strong>thay đổi duy nhất trong cả file là dòng tôi vừa sửa,
-      bị lật ngược</strong>. Không ai sửa tay — daemon ghi đè.
+      Cách làm là tắt chỗ ngồi trống (<code>claude</code>) để không mở được phiên không-vai.
+      Sai ở chỗ: <strong>máy này chạy lẫn</strong> — phần lớn project là Claude Code thuần và
+      cố ý như vậy. Tắt chỗ ngồi gốc là <strong>làm gãy toàn bộ số đó</strong> để đổi lấy một
+      bảo đảm ở số ít project có quản trị. Giá rơi vào đa số.
     </p>
     <p>
-      Lý do: daemon giữ state provider trong bộ nhớ rồi <em>ghi ngược ra file</em>. Một sửa đổi mà
-      daemon đang chạy chưa đọc thì bị lần restart sau xoá — và nó vẫn báo thành công. Tức là đúng
-      cái thứ tự tôi dặn (“sửa bây giờ, restart sau”) là thứ tự làm mất thay đổi.
+      Nó cũng không hoạt động: <code>provider-snapshot-manager</code> ghi lại nguyên bộ provider
+      mỗi lần refresh — cả lúc daemon khởi động lẫn khi app kết nối lại — nên bản tắt tự bật lại.
+      Đo được hai lần trong một ngày, lần thứ hai daemon còn không restart. Một cái chốt vừa làm
+      gãy trường hợp phổ biến vừa tự mất im lặng thì tệ hơn không có chốt, vì nó <em>trông giống</em>
+      một cái chốt.
     </p>
+    <p class="dl">Đã rút lại ở ba chỗ</p>
     <p>
-      Đúng phải là: sửa file rồi <strong><code>paseo daemon reload</code> ngay</strong>. Đã đo lại:
-      sau reload thì config giữ nguyên và <code>claude</code> chuyển sang
-      <code>unavailable · Disabled</code>, trong khi cả ba provider vai vẫn
-      <code>available · Enabled</code>. Đã sửa lại hướng dẫn trong README và trình cài đặt.
+      Config trên máy trả về <code>enabled: true</code> và đã reload; file config mẫu của bộ này
+      cũng đổi theo; và test hợp đồng installer giờ khẳng định ngược lại — provider gốc
+      <strong>phải</strong> bật — kèm lý do viết ngay tại chỗ để lần sau không ai suy ra lại cái
+      mặc định cũ.
     </p>
-    <p class="dl">Rồi 40 phút sau nó tự bật lại — D1 không phải cơ chế</p>
+    <p class="dl">Cái còn lại của D1</p>
     <p>
-      Đo lúc 01:37: config quay lại <code>enabled: true</code>, provider lại Enabled. Daemon
-      <strong>không</strong> restart — cùng pid, uptime liên tục. Cũng không phải timer: sau khi
-      tắt lại, theo dõi liên tục 90 giây vẫn nguyên. Log ngay tại thời điểm ghi:
-      <code>provider-snapshot-manager · Failed to refresh provider snapshot</code>, kèm app Paseo
-      kết nối lại (<code>origin: paseo://app</code>).
+      Mục tiêu vẫn đúng và vẫn đáng làm. Cách làm giờ là thứ lẽ ra phải là ngay từ đầu: mở Lead
+      thường trực trên <code>claude-lead</code> (kỷ luật lúc giao việc), và <strong>phát hiện</strong>
+      một Lead ngồi sai chỗ — graph đã phân biệt sẵn seat được hook với seat không. Ngăn chặn chưa
+      bao giờ có ở đây, và việc giả vờ là có đã đẻ ra hai hướng dẫn sai trong một ngày.
     </p>
+    <p class="dl">Bài học chung — đã ghi thành AP-05</p>
     <p>
-      Tức là <code>provider-snapshot-manager</code> ghi nguyên bộ provider ngược ra file mỗi lần nó
-      refresh, và provider built-in bị dựng lại thành enabled. Nó refresh khi daemon khởi động
-      <em>và</em> khi app kết nối lại. Nên bản sửa chỉ sống tới lần refresh kế tiếp — một sự kiện
-      không có gì trong bộ này điều khiển hay nhìn thấy được.
-    </p>
-    <p>
-      <strong>Kết luận thay cho những gì tôi viết một tiếng trước:</strong>
-      <code>"claude": {"enabled": false}</code> là một <em>sở thích</em>, không phải cơ chế. Không bền,
-      mất im lặng, không cái gì ở đây phát hiện được. Nên <strong>D1 như thiết kế không đạt được mục
-      tiêu của nó</strong>. Cái còn lại là kỷ luật lúc mở phiên — mở Lead thường trực trên
-      <code>claude-lead</code> — cộng với <strong>phát hiện</strong>, thứ graph đã làm được sẵn. Đúng
-      như mọi chỗ khác trong bộ này khi đụng tới một seat hook không với tới.
-    </p>
-    <p class="dl">Nó mua được gì — và không mua được gì</p>
-    <p>
-      Nó tắt <strong>chỗ ngồi</strong>, không tắt agent đang chạy: Lead thường trực khởi động từ chỗ
-      cũ vẫn chạy bình thường. Nên D1 chỉ là <em>nửa</em> cơ chế — nó chặn phiên không-vai <em>mới</em>
-      khởi động, còn Lead thường trực thì vẫn phải được mở trên <code>claude-lead</code> một cách có
-      chủ đích. Không có cấu hình nào ép được việc đó; đó là kỷ luật lúc giao việc, mà graph
-      <em>phát hiện</em> được chứ không <em>ngăn</em> được.
-    </p>
-    <p>
-      Hai điều tôi <strong>không</strong> làm: không gắn nhãn ngược cho 9 agent cũ (đúng theo
-      phán quyết F015 — không backfill), và không đụng ~20 agent đang nằm ở chỗ ngồi cũ. Nếu có
-      con nào anh còn cần mở lại, mở trước khi restart.
+      Một mặc định đúng cho máy chuyên dụng trở thành lỗi trên máy dùng chung. Bộ này được thiết kế
+      để cài lên máy chạy lẫn project có và không có quản trị, nên <strong>mọi thiết lập ở cấp máy
+      phải trả lời được: “nó làm gì với project chưa từng đăng ký?”</strong> Vụ skill ở cấp global và
+      vụ này là <em>cùng một lỗi</em>, xảy ra hai lần trong một ngày, cả hai lần đều do anh bắt chứ
+      không phải cơ chế nào bắt. Lần thứ hai còn được viết ra <em>trong chính lượt sửa lần thứ nhất</em>.
     </p>
   </div>
 

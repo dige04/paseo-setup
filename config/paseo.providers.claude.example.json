@@ -9,7 +9,7 @@
   "agents": {
     "providers": {
       "claude": {
-        "enabled": false
+        "enabled": true
       },
       "claude-supervisor": {
         "extends": "claude",

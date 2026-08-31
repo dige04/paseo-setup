@@ -272,12 +272,29 @@ for (const [installer, pattern] of Object.entries(CLAUDE_SKILL_LOOP)) {
 	const exampleText = readFileSync(examplePath, "utf8");
 	const providers = JSON.parse(exampleText)?.agents?.providers ?? {};
 
-	// B2: role-less sessions must not be possible by accident. The three role
-	// providers extend "claude" and keep working with it disabled.
+	// The built-in "claude" provider stays ENABLED, and that is a decision, not an
+	// oversight. This pack shipped `enabled: false` on the theory that a role-less
+	// session should be impossible — which is only defensible on a host dedicated
+	// to SLP. Real hosts are mixed: most projects here are deliberately plain
+	// Claude Code (see docs/onboarding.md, "Should this project use SLP at all?"),
+	// and disabling the base seat breaks every one of them to guard against a
+	// mistake in the few that are governed. Wrong trade, and it was reported by the
+	// owner within a day of shipping.
+	//
+	// It also never worked: provider-snapshot-manager rewrites config.json on
+	// every refresh with built-ins materialised as enabled, so the disable
+	// reverted on its own (measured 2026-09-01, twice, once with no daemon
+	// restart). A guard that breaks the common case AND silently lapses is worse
+	// than no guard, because it reads like one.
+	//
+	// The real guarantee is detection: governance-graph's enforcementClass
+	// separates pack-enforced seats from unenforced ones, so a Lead sitting on the
+	// wrong seat is reported rather than prevented. Same posture as every other
+	// place this pack meets a seat the hook cannot reach.
 	assert.deepEqual(
 		providers.claude,
-		{ enabled: false },
-		'example config must disable the built-in "claude" provider and add nothing else to it',
+		{ enabled: true },
+		'example config must leave the built-in "claude" provider enabled: plain Claude Code projects share this host',
 	);
 
 	const expectedModels = {

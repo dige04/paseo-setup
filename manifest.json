@@ -1,12 +1,12 @@
 {
   "schema": "paseo.team-policy-digest/v1",
   "version": "0.1.0",
-  "policyDigest": "sha256:cdf9618ee27e0e843028c41c5f49f94067554d9509ba605b24ea9f6c3b8bfc4a",
+  "policyDigest": "sha256:4f85c055e176673f69477fab4e33a0d652f4559c8d496938d906a8f44e8a3260",
   "fileCount": 47,
   "files": {
     ".github/workflows/ci.yml": "sha256:5b813228638034fe89b139086053b5242c2dbf911b003341edfc655ea3ae275b",
     "config/skill-admission.json": "sha256:cfe6b8828453f70a47aba98eeb33022b2097129928c31ced9dcb842c253ff29f",
-    "docs/anti-patterns.md": "sha256:7748ec576c49a006e15c65fc71140c982b9e3c73ed3380fa770f56fc108c6639",
+    "docs/anti-patterns.md": "sha256:9786102bb0e33196bdc1f00995630b49af7b28971de395bcf7384ceea9f3fde0",
     "extensions/claude-policy.mts": "sha256:80b8d8c585a75df30d0670f536211a6e3e24924f3e697647c23a943027d7a6c4",
     "extensions/claude-team-hook.mjs": "sha256:34bc0e73abc26f78e30f12f6ed68885547fb49eaa3736d054b19fc0f77683bb7",
     "extensions/policy-core.mts": "sha256:43ebd090219cb79004eaca9f04f4ec352b795d08e62255790c4c15a72b204555",
@@ -18,7 +18,7 @@
     "scripts/eod-digest.mjs": "sha256:5a28158843488c32c13443f473e10bbd4edda9ea2c85b77af9006255619223d8",
     "scripts/governance-graph.mjs": "sha256:01542c238a2a2a9547720586335196bcb258873732bf8acbd1aaac7304032f78",
     "scripts/install.ps1": "sha256:620b68bb3812b23a012fbe2795f3c5c554aa0420ed04131eeacce1e9194d1d41",
-    "scripts/install.sh": "sha256:27faa18b615fe45e60360c608809fcd60339cef216b57b169d64bf6acda1d24d",
+    "scripts/install.sh": "sha256:350147e04dbd8e5951d940515f4e3cd52d5c19501782e55a8758b32f09cd9373",
     "scripts/lib-common.mjs": "sha256:319e53ae3071f2aaa9bfc9b8d67aa777e5a43026e9cf5b92a200406a00dd766e",
     "scripts/model-routing.mjs": "sha256:3733062ec4032ba273067b40388e724c8e3038efc3f407d4d49224645790f706",
     "scripts/ocr-review.mjs": "sha256:b200e4414f1ba9c9a6421826670b1519f461274b4c05f2df852872e905d84fa3",
