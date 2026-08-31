@@ -609,6 +609,7 @@
     <li><strong>Deployed plane mới versioned một nửa</strong> — cần một lần cài thật trên máy sạch để chốt.</li>
     <li><strong>Chưa chạy đa máy / đa ngày</strong> — mọi con số ở §6 là một host, một ngày.</li>
     <li><strong>Cấu hình D1 chưa có hiệu lực</strong> cho tới khi daemon được restart — provider chỉ đọc lúc khởi động. Đây là việc chờ anh, không phải nợ kỹ thuật.</li>
+    <li><strong>Cổng kiểm tra buổi sáng hiện KHÔNG thể xanh.</strong> Đo trực tiếp: <code>--assert</code> exit 3 ở cả hai scope, vì một supervisor <em>đã đóng</em> từ 22/08 có cạnh giao việc. Đó là sự thật lịch sử — không thao tác nào hôm nay xoá được. Mà một cổng lúc nào cũng đỏ thì một tuần sau không ai đọc nữa. Đây làm hỏng đúng cái lợi mà D1 nhắm tới, nên phải nói ra chứ không giấu. Ba lựa chọn và đề xuất nằm ở <code>docs/decisions/26-08-31-owner-decisions.md</code>; cố ý <strong>không</strong> tự sửa, vì nới một điều kiện của luật là cách nhanh nhất để rút ruột một cái luật.</li>
   </ul>
 
   <h2><span class="num">§ 9</span>Chi phí đem sang project khác</h2>

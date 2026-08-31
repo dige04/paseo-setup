@@ -399,7 +399,7 @@ assert.equal(normalizePaseoCwd("~notahome/x"), "~notahome/x", "only the ~ HOME f
   const dispositionLiteral = /["'`]repository-scout["'`]/;
   const files = [
     ...["policy-core.mts", "claude-policy.mts"].map((f) => `extensions/${f}`),
-    ...["lib-common.mjs", "governance-graph.mjs", "remote-paseo.mjs", "reconcile-observer.mjs", "watchdog.mjs", "model-routing.mjs"]
+    ...["lib-common.mjs", "governance-graph.mjs", "remote-paseo.mjs", "reconcile-observer.mjs", "watchdog.mjs", "wake-tier.mjs", "model-routing.mjs"]
       .map((f) => `scripts/${f}`),
   ];
   // The scanned list is hand-maintained, so a rename would silently drop a file

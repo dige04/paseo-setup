@@ -17,6 +17,7 @@ const teamScriptsPath = read("scripts/team-scripts-path.mjs");
 const ocrReview = read("scripts/ocr-review.mjs");
 const teamCommunication = read("scripts/team-communication.mjs");
 const watchdog = read("scripts/watchdog.mjs");
+const wakeTier = read("scripts/wake-tier.mjs");
 const libCommon = read("scripts/lib-common.mjs");
 
 assert.match(ocrSkill, /name: paseo-ocr-reviewer/);
@@ -76,6 +77,7 @@ for (const [name, text] of [
   ["ocr-review.mjs", ocrReview],
   ["team-communication.mjs", teamCommunication],
   ["watchdog.mjs", watchdog],
+  ["wake-tier.mjs", wakeTier],
 ]) {
   assert.match(text, /isEntrypoint/, `${name} uses the shared entrypoint check`);
   assert.doesNotMatch(text, /realpathSync\(fileURLToPath/, `${name} has no private copy`);

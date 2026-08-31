@@ -344,6 +344,16 @@ export function runPaseoText(args, timeoutMs = 5000) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * The exact CLI form a wake takes. Named and exported because it is the only
+ * mutating command in this module and everything else about the actuator is
+ * proven with an injected spy — the spy cannot tell you the argv is wrong.
+ * `--no-wait` matters: a wake must not block the scan on the agent's reply.
+ */
+export function sendArgv(id, prompt) {
+	return ["send", id, "--prompt", prompt, "--no-wait"];
+}
+
+/**
  * One watchdog snapshot for signal 1, then two activity probes for signal 2 —
  * but only for the agents that actually reach the corroboration step. Probing
  * a healthy fleet twice would cost a `probeGapMs` wait for nothing.
@@ -447,10 +457,19 @@ async function main(argv) {
 	let result = { woke: [], failed: [] };
 	if (options.wake && plan.wake.length > 0) {
 		result = await wakeAgents(plan, {
-			sendPrompt: (id, prompt) => runPaseoText(["send", id, "--prompt", prompt, "--no-wait"], 20_000),
+			sendPrompt: (id, prompt) => runPaseoText(sendArgv(id, prompt), 20_000),
 		});
 	}
-	writeWakeState(statePath, nextWakeState(state, plan, result.woke.map((entry) => entry.id)));
+	// State is written only when a wake actually happened. A scan is READ-ONLY,
+	// and the Supervisor is sanctioned to run it: a write here would put a
+	// mutation inside an allowlisted process the hook cannot see, on the one
+	// seat documented as mutates:false. Worse, `nextWakeState` clears the
+	// attempt counter of every agent seen healthy — so a Supervisor scan landing
+	// between the Lead's two wakes would reset a ladder mid-escalation, and the
+	// termination guarantee this module leans on would silently stop holding.
+	if (result.woke.length > 0) {
+		writeWakeState(statePath, nextWakeState(state, plan, result.woke.map((entry) => entry.id)));
+	}
 
 	console.log(JSON.stringify({ ...plan, applied: options.wake, ...result }, null, 2));
 	return exitCodeFor(plan);

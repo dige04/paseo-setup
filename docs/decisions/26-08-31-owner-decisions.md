@@ -47,6 +47,52 @@ disappear, restore the backup.
 they resume after the base is disabled is untested. If resuming one matters, do it
 before the restart.
 
+### Blocking D1's stated payoff — a finding, recorded not fixed
+
+D1 was accepted so the morning gate would say something instead of `không xác định`.
+Measured today, that gate **cannot go green at all**:
+
+```
+node scripts/governance-graph.mjs --assert --all   → exit 3
+node scripts/governance-graph.mjs --assert         → exit 3
+```
+
+| | |
+|---|---|
+| Rule | `A5-supervisor-not-observe-only` |
+| Agent | `4b28424e` — `claude-supervisor`, **status `closed`**, created 2026-08-22 |
+| Evidence | parents 5 delegation edges; the supervisor seat is observe-only and never orchestrates |
+| Reproduced | yes, both scopes, exit code observed directly (not through a pipe) |
+| Convergence | 2 independent paths (live run + external review) |
+
+The violation is a **historical fact about a finished agent**. No action on today's
+topology can clear it, so a gate wired to it is red every morning forever — and a
+gate that is always red is a gate that stops being read within a week, which is the
+exact failure the digest doctrine in `docs/self-improve.md` warns about.
+
+**Why this looks like a defect in the assert, not in the fleet.** `A1` already
+draws the liveness distinction: non-running peers holding a write-capable mode are
+reported as `ADVISORY (not a violation)`. `A5` draws no such distinction, so a
+closed supervisor and a live one produce the same blocking verdict. The
+inconsistency is internal to the assert tier.
+
+**Deliberately not fixed here.** Narrowing `A5` to running seats is a change to a
+governance invariant, and the F015 ruling is explicit that these suppression
+clauses are not to be "simplified" on the strength of a quiet run. It is also the
+kind of one-line change that looks obviously right and is how a real check gets
+hollowed out. Options for the owner:
+
+1. **Give `A5` the `A1` liveness clause** — closed seats become advisories, live
+   ones stay violations. Consistent with existing precedent; needs a positive
+   control proving a *running* supervisor with a delegation edge still reaches
+   exit 3, or the fix silently disables the rule.
+2. **Archive `4b28424e`** — makes the gate green today, changes nothing about the
+   rule, and pushes the same problem to the next closed supervisor.
+3. **Accept exit 3 as the standing state** — honest, and useless as a daily gate.
+
+Recommended: 1, with the positive control, run as its own governed change with an
+architect-Peer on the root — not folded into this round.
+
 ---
 
 ## D2 · Wake tier before throughput measurement — **A chosen**

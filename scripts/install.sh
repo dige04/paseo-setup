@@ -278,7 +278,11 @@ fi
 echo "  skills   -> ${SKILLS_TARGET:-(none — per project, see --project)}"
 echo ""
 if [[ "$SKILLS_ONLY" -eq 1 ]]; then
-  echo "Next step: confirm the project sees them — cd \"$PROJECT_DIR\" && ls .claude/skills"
+  if [[ -n "$PROJECT_DIR" ]]; then
+    echo "Next step: confirm the project sees them — cd \"$PROJECT_DIR\" && ls .claude/skills"
+  else
+    echo "Next step: confirm they are visible — ls \"$SKILLS_TARGET\""
+  fi
   exit 0
 fi
 echo "Next steps:"

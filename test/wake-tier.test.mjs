@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,7 @@ import {
   parseWakeArgs,
   planWake,
   readWakeState,
+  sendArgv,
   wakeAgents,
   WAKE_DISPOSITIONS,
   wakePrompt,
@@ -354,5 +355,43 @@ for (const argv of [["--nope"], ["--max-wakes"], ["--probe-gap-ms", "x"]]) {
 
 assert.match(wakePrompt({ attempt: 2, maxAttempts: 2, idleMinutes: 42 }), /probe 2\/2/);
 assert.match(wakePrompt({ attempt: 1, maxAttempts: 2, idleMinutes: 42 }), /42m/);
+
+// The mutating command form. Everything else about the actuator is proven with
+// an injected spy, and a spy cannot tell you the argv is wrong — so the one
+// real command this module can issue is pinned here.
+assert.deepEqual(sendArgv("abc", "hello"), ["send", "abc", "--prompt", "hello", "--no-wait"]);
+assert.ok(sendArgv("a", "b").includes("--no-wait"), "a wake must not block the scan on the reply");
+
+// NEGATIVE CONTROL, symmetric to the positive one above: a scan writes nothing.
+// The Supervisor is sanctioned to run the scan and is documented mutates:false,
+// so a state write inside this process would be a mutation the hook cannot see —
+// and because nextWakeState clears the counter of every healthy agent, a scan
+// landing between the Lead's two wakes would reset a ladder mid-escalation.
+{
+  const dir = mkdtempSync(join(tmpdir(), "wake-readonly-"));
+  const statePath = join(dir, "state", "wake-tier.json");
+  const run = (argv) => {
+    try {
+      return { status: 0, stdout: execFileSync(process.execPath, [CLI, ...argv], {
+        encoding: "utf8",
+        stdio: "pipe",
+        env: { ...process.env, PASEO_TEAM_STATE_DIR: join(dir, "state"), PASEO_TEAM_PASEO_EXEC: "" },
+      }) };
+    } catch (error) {
+      return { status: error.status, stdout: String(error.stdout ?? ""), stderr: String(error.stderr ?? "") };
+    }
+  };
+  // No daemon is reachable here, so the scan fails on collection — which is
+  // exactly the run that must not leave a state file behind either.
+  run([]);
+  assert.ok(!existsSync(statePath), "a scan must not create the wake state file");
+
+  // And with a state file already present, a scan must leave it byte-identical.
+  mkdirSync(join(dir, "state"), { recursive: true });
+  const before = JSON.stringify({ version: 1, agents: { keep: { attempts: 1, lastWakeAt: "1970-01-01T00:00:00.000Z" } } }, null, 2) + "\n";
+  writeFileSync(statePath, before);
+  run(["--hung-after-ms", "60000"]);
+  assert.equal(readFileSync(statePath, "utf8"), before, "a scan must not rewrite the wake state file");
+}
 
 console.log("wake-tier: ok");
