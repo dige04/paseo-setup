@@ -331,3 +331,49 @@ not touched). This repo was onboarded to itself via
 No other project on this host had a `WORKSPACE_PROTOCOL.md`, so none was relying on
 the global install as a sanctioned SLP project. Any that needs the skills back gets
 them with one command.
+
+---
+
+## Closing measurement — why cleaning the three strays does not wrap it up
+
+Asked whether the harness was ready once the three A3 violations were cleared,
+the answer measured out as **no**, for a reason worth stating precisely.
+
+**The label mechanism works.** Proven on this host for the first time
+2026-09-01: `paseo agent update <id> --label harness.role=lead`, then read back
+through the exact selector the sweep uses — `paseo ls -g --label
+harness.role=lead` returned it. So A3's post-epoch clause is **satisfiable**. It
+is not AP-02; there is a reachable positive path.
+
+**It has never been used.** Of the 56 agents on this host running on
+`claude-supervisor` / `claude-lead` / `claude-peer`, **0 carried a
+`harness.role` record** before that command. Not a low number — zero, across
+every agent the pack has ever produced here.
+
+**So the gate is satisfiable but unsatisfied, and it will be red every day.**
+The three current violations are only violations because they happen to be
+post-epoch; the other 53 fall in the pre-epoch DECLARED cohort and stay
+advisories. Every agent created from now on is post-epoch, so unless something
+labels it, each new one is a fresh A3 violation. Clearing the three buys a green
+gate until the next agent is created.
+
+**The cause is D1's original goal, arrived at honestly.** The create-time gate
+binds by CREATOR. Nothing on this host is an armed creator: the standing Lead
+runs on bare `claude`, and an agent a human opens from the app has no creator at
+all (`ParentAgentId: null`, checked). So no label is ever written.
+
+**What actually closes it** — and it is not a config setting, which is the whole
+lesson of this document:
+
+1. Run the standing Lead on `claude-lead` and dispatch through it, so the
+   create-time gate is armed for everything it creates.
+2. Verify once, end to end: have that Lead create one agent, then confirm
+   `paseo ls -g --label harness.role=peer` returns it. Until that round-trip is
+   observed, the automatic path is assumed, not known — the manual path is the
+   only one measured so far.
+3. Agents a human opens from the app stay outside this permanently. Either label
+   them by hand or accept them as advisories; there is no third option at this
+   layer (see A8's measured limit).
+
+Only after step 2 is the morning gate something that stays green on ordinary use,
+and only then is a throughput measurement worth taking.
