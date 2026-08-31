@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Một ngày vận hành — paseo-claude-team</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Geist', system-ui, sans-serif; background: #f5f5f5; color: #2d3142;
+         min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 3rem 2rem; }
+  .frame { max-width: 1320px; width: 100%; }
+  .eyebrow { font-family: 'Geist Mono', monospace; font-size: 0.66rem; font-weight: 500;
+             letter-spacing: 0.18em; text-transform: uppercase; color: #4f5d75; margin-bottom: 0.5rem; }
+  h1 { font-family: 'Instrument Serif', serif; font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+       font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 1.5rem; }
+  svg { width: 100%; min-width: 960px; display: block; }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Swimlane · Diagram Design</p>
+    <h1>Một thay đổi đi từ đầu ngày tới lúc merge như thế nào</h1>
+
+    <svg viewBox="0 0 1200 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="day-title day-desc">
+      <title id="day-title">Vòng làm việc một ngày của paseo-claude-team</title>
+      <desc id="day-desc">Cổng sáng chạy tự động và chặn nếu topology sai, Lead phát V3 brief cho một writer trên một scope, Engineer nộp kèm killing test, một Reviewer độc lập soát bằng mutation probe, Lead nghiệm thu hoặc trả correction về đúng writer gốc, rồi CI và Human merge.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- lane bands + dividers -->
+      <line x1="148" y1="112" x2="1160" y2="112" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <line x1="148" y1="208" x2="1160" y2="208" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+      <line x1="148" y1="304" x2="1160" y2="304" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+      <line x1="148" y1="400" x2="1160" y2="400" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+      <line x1="148" y1="496" x2="1160" y2="496" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+
+      <text x="140" y="164" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.14em">TỰ ĐỘNG</text>
+      <text x="140" y="260" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.14em">LEAD</text>
+      <text x="140" y="356" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.14em">PEERS</text>
+      <text x="140" y="452" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.14em">HUMAN</text>
+
+      <!-- forward connectors -->
+      <path d="M296,160 H304 Q312,160 312,168 V248 Q312,256 320,256" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <path d="M468,256 H476 Q484,256 484,264 V344 Q484,352 492,352" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="640" y1="352" x2="664" y2="352" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <path d="M812,352 H820 Q828,352 828,344 V264 Q828,256 836,256" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <path d="M984,256 H992 Q1000,256 1000,248 V168 Q1000,160 1008,160" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="1082" y1="188" x2="1082" y2="420" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- correction back-edge (the load-bearing handoff) -->
+      <path d="M910,284 V444 Q910,452 902,452 H574 Q566,452 566,444 V380" fill="none" stroke="#eb6c36" stroke-width="1" marker-end="url(#arrow-accent)"/>
+      <rect x="628" y="426" width="184" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="720" y="435" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CORRECTION → ĐÚNG WRITER GỐC</text>
+
+      <!-- steps -->
+      <rect x="148" y="132" width="148" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="148" y="132" width="148" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="222" y="156" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Cổng sáng</text>
+      <text x="222" y="174" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">--ASSERT · EXIT 3 = DỪNG</text>
+
+      <rect x="320" y="228" width="148" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="320" y="228" width="148" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="394" y="252" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Phát V3 brief</text>
+      <text x="394" y="270" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">1 WRITER · 1 SCOPE</text>
+
+      <rect x="492" y="324" width="148" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="492" y="324" width="148" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="566" y="348" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Engineer</text>
+      <text x="566" y="366" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">FIX + KILLING TEST</text>
+
+      <rect x="664" y="324" width="148" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="664" y="324" width="148" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="738" y="348" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Reviewer độc lập</text>
+      <text x="738" y="366" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MUTATION PROBE</text>
+
+      <rect x="836" y="228" width="148" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="836" y="228" width="148" height="56" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <text x="910" y="252" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Nghiệm thu / trả về</text>
+      <text x="910" y="270" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">WRITER ≠ ACCEPTOR</text>
+
+      <rect x="1008" y="132" width="148" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="1008" y="132" width="148" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="1082" y="156" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">CI + digest EOD</text>
+      <text x="1082" y="174" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">4 CỔNG · EXIT CODE</text>
+
+      <rect x="1008" y="420" width="148" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="1008" y="420" width="148" height="56" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <text x="1082" y="444" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Merge + deploy</text>
+      <text x="1082" y="462" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CHỈ HUMAN</text>
+
+      <!-- async lane note -->
+      <text x="148" y="540" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">Song song, không chặn merge: ultra-review sweep theo module — coverage fleet + semantic pair 2 provider + probe.</text>
+      <text x="148" y="566" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">Findings đi qua cổng hội tụ rồi mới được phép sửa; không cái nào chen vào đường merge của hôm nay.</text>
+
+      <!-- legend -->
+      <line x1="148" y1="612" x2="1160" y2="612" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="148" y="632" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+      <line x1="244" y1="628" x2="276" y2="628" stroke="#4f5d75" stroke-width="1"/>
+      <text x="288" y="632" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ĐƯỜNG TỚI</text>
+      <line x1="420" y1="628" x2="452" y2="628" stroke="#eb6c36" stroke-width="1"/>
+      <text x="464" y="632" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">VÒNG SỬA — HANDOFF CHỊU LỰC</text>
+      <text x="1160" y="632" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">4 LANE · 7 BƯỚC</text>
+    </svg>
+  </div>
+</body>
+</html>

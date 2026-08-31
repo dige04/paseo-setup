@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>paseo-claude-team — báo cáo tổng hợp</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --paper:#f5f5f5; --paper2:#ffffff; --ink:#2d3142; --muted:#4f5d75; --soft:#7a8399;
+    --rule:rgba(45,49,66,0.12); --accent:#eb6c36; --accent-tint:rgba(235,108,54,0.08); --link:#2e5aa8;
+    --sans:'Geist',system-ui,sans-serif; --serif:'Instrument Serif',serif; --mono:'Geist Mono',ui-monospace,monospace;
+  }
+  body { font-family:var(--sans); background:var(--paper); color:var(--ink); line-height:1.6; padding:4rem 2rem 6rem; }
+  .wrap { max-width:1180px; margin:0 auto; }
+
+  .eyebrow { font-family:var(--mono); font-size:0.66rem; font-weight:500; letter-spacing:0.18em;
+             text-transform:uppercase; color:var(--muted); margin-bottom:0.5rem; }
+  h1 { font-family:var(--serif); font-weight:400; letter-spacing:-0.02em;
+       font-size:clamp(2.25rem,4vw + 1rem,3.5rem); line-height:1.05; margin-bottom:1.25rem; }
+  .lede { font-size:1.125rem; color:var(--muted); max-width:70ch; }
+  .lede strong { color:var(--ink); font-weight:600; }
+
+  .meta { display:flex; flex-wrap:wrap; gap:1.75rem; font-family:var(--mono); font-size:0.6875rem;
+          color:var(--soft); letter-spacing:0.06em; text-transform:uppercase;
+          border-top:1px solid var(--rule); border-bottom:1px solid var(--rule);
+          padding:0.875rem 0; margin:2.25rem 0 3rem; }
+  .meta b { color:var(--ink); font-weight:500; }
+
+  h2 { font-family:var(--serif); font-weight:400; font-size:1.875rem; letter-spacing:-0.01em; margin:4rem 0 0.75rem; }
+  h2 .num { font-family:var(--mono); font-size:0.6875rem; color:var(--soft); letter-spacing:0.18em;
+            display:block; margin-bottom:0.375rem; font-weight:500; }
+  h3 { font-size:1.0625rem; font-weight:600; margin:2rem 0 0.5rem; }
+  p { max-width:74ch; margin-bottom:0.875rem; }
+  strong { font-weight:600; }
+  em { font-style:italic; }
+  code { font-family:var(--mono); font-size:0.8125em; background:rgba(45,49,66,0.05);
+         padding:0.1em 0.35em; border-radius:3px; }
+  ul { margin:0 0 1rem 1.125rem; max-width:74ch; }
+  li { margin-bottom:0.375rem; }
+
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:1rem; margin:1.5rem 0 0; }
+  .kpi { background:var(--paper2); border:1px solid var(--rule); border-radius:6px; padding:1.125rem 1.25rem; }
+  .kpi .n { font-family:var(--serif); font-size:2rem; line-height:1; display:block; margin-bottom:0.375rem; }
+  .kpi .n.coral { color:var(--accent); }
+  .kpi .l { font-family:var(--mono); font-size:0.625rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); }
+
+  .cards { display:grid; grid-template-columns:1.15fr 1fr 0.95fr; gap:1rem; margin:1.5rem 0 0; }
+  .card { background:var(--paper2); border:1px solid var(--rule); border-radius:6px; padding:1.25rem; }
+  .card.focal { border-color:var(--accent); background:var(--accent-tint); }
+  .card-head { display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem; }
+  .dot { width:7px; height:7px; border-radius:50%; flex:none; }
+  .dot.coral{background:var(--accent);} .dot.ink{background:var(--ink);} .dot.muted{background:var(--muted);}
+  .card h4 { font-size:0.9375rem; font-weight:600; }
+  .card p { font-size:0.875rem; color:var(--muted); margin:0; }
+
+  table { border-collapse:collapse; width:100%; margin:1.25rem 0 0.5rem; font-size:0.875rem; }
+  th { text-align:left; font-family:var(--mono); font-size:0.625rem; font-weight:500; letter-spacing:0.14em;
+       text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--ink); padding:0 0.75rem 0.5rem 0; }
+  td { border-bottom:1px solid var(--rule); padding:0.625rem 0.75rem 0.625rem 0; vertical-align:top; }
+  td:last-child, th:last-child { padding-right:0; }
+  tr.focal td { background:var(--accent-tint); }
+  .tag { font-family:var(--mono); font-size:0.625rem; letter-spacing:0.1em; text-transform:uppercase; white-space:nowrap; }
+  .tag.q { color:var(--accent); font-weight:600; }
+  .tag.c { color:var(--ink); }
+  .tag.o { color:var(--soft); }
+  .mono { font-family:var(--mono); font-size:0.75rem; color:var(--muted); }
+  .num-cell { font-family:var(--mono); font-size:0.8125rem; white-space:nowrap; }
+  .delta { color:var(--accent); font-weight:600; }
+
+  figure { margin:2.25rem 0 0; }
+  figure svg { width:100%; height:auto; display:block; background:var(--paper); }
+  figcaption { font-family:var(--mono); font-size:0.6875rem; color:var(--soft); letter-spacing:0.06em;
+               padding-top:0.75rem; border-top:1px solid var(--rule); margin-top:0.5rem; }
+  figcaption b { color:var(--muted); font-weight:500; }
+
+  pre { background:var(--paper2); border:1px solid var(--rule); border-radius:6px; padding:1rem 1.125rem;
+        overflow-x:auto; margin:1rem 0; font-family:var(--mono); font-size:0.8125rem; line-height:1.65; }
+  pre .c { color:var(--soft); }
+  pre .a { color:var(--accent); }
+
+  .aside { font-family:var(--serif); font-style:italic; font-size:1.1875rem; color:var(--muted);
+           border-left:2px solid var(--accent); padding:0.375rem 0 0.375rem 1.375rem; margin:1.75rem 0; max-width:62ch; }
+
+  .decision { background:var(--paper2); border:1px solid var(--rule); border-left:3px solid var(--accent);
+              border-radius:0 6px 6px 0; padding:1.25rem 1.375rem; margin:1rem 0; }
+  .decision h4 { font-size:0.9375rem; font-weight:600; margin-bottom:0.375rem; }
+  .decision p { font-size:0.875rem; color:var(--muted); margin:0; max-width:none; }
+
+  footer { margin-top:4.5rem; padding-top:1.25rem; border-top:1px solid var(--rule);
+           font-family:var(--mono); font-size:0.6875rem; color:var(--soft); letter-spacing:0.06em;
+           display:flex; flex-wrap:wrap; gap:1.5rem; justify-content:space-between; }
+  @media (max-width:900px){ .kpis{grid-template-columns:repeat(2,1fr);} .cards{grid-template-columns:1fr;} body{padding:2.5rem 1.25rem 4rem;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">Báo cáo tổng hợp · 2026-08-31</p>
+  <h1>paseo-claude-team</h1>
+  <p class="lede">
+    Bộ harness quản trị cho agent viết code trên Paseo, theo mô hình Supervisor–Lead–Peer.
+    Nó không phải khung prompt: <strong>4 trong 6 tầng cưỡng chế là máy giữ</strong> — hook,
+    test, CI và tầng phát hiện lúc chạy — và mỗi luật quan trọng đều có một test sẽ đỏ nếu
+    ai đó gỡ luật đó ra. Hai tầng còn lại được ghi rõ là luật, không đội lốt cơ chế.
+  </p>
+
+  <div class="meta">
+    <span>Commit <b>b52cc06</b></span>
+    <span>Manifest <b>sha256:07bb06f2</b></span>
+    <span>Governed <b>46 file</b></span>
+    <span>Suite <b>41/41</b></span>
+    <span>Repo <b>10 ngày tuổi</b></span>
+  </div>
+
+  <h2><span class="num">§ 1</span>Quy mô</h2>
+  <div class="kpis">
+    <div class="kpi"><span class="n">9 380</span><span class="l">dòng code</span></div>
+    <div class="kpi"><span class="n coral">9 039</span><span class="l">dòng test · tỉ lệ 0.96</span></div>
+    <div class="kpi"><span class="n">17</span><span class="l">script vận hành</span></div>
+    <div class="kpi"><span class="n">22</span><span class="l">file test</span></div>
+  </div>
+  <p style="margin-top:1.25rem">
+    Tỉ lệ test/code <strong>0.96</strong> là con số đáng nhìn nhất ở đây: gần một dòng test cho mỗi
+    dòng code, và phần lớn không phải test “gọi hàm xem có chạy không” mà là <em>killing test</em> —
+    mỗi cái đã được chứng minh sẽ đỏ khi cố tình phá đúng dòng nó canh. Kèm theo: 5 skill vận hành,
+    4 prompt vai trò, 10 tài liệu, 7 cổng hook fail-closed.
+  </p>
+
+  <h2><span class="num">§ 2</span>Ai được làm gì</h2>
+  <p>
+    Ba vai, ranh giới không nằm ở lời dặn mà ở chỗ máy chặn được. Human giữ merge và deploy.
+    Supervisor chỉ quan sát — mọi báo cáo của nó mang cờ <code>mutates:false</code>, nó đề xuất
+    chứ không quyết. Lead là seat duy nhất điều phối, và <strong>mặc định không tự viết product
+    code</strong> — vì seat nghiệm thu mà cũng là seat viết thì việc nghiệm thu chỉ còn là hình thức.
+  </p>
+  <figure>
+    <svg viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="topo-title topo-desc">
+            <title id="topo-title">Topology và authority của paseo-claude-team</title>
+            <desc id="topo-desc">Human sở hữu merge và deploy, Supervisor chỉ quan sát, Lead là seat duy nhất điều phối và không tự viết product code, bốn loại Peer nhận quyền từ V3 brief; seat claude được hook cưỡng chế còn fleet omp chỉ ràng bằng prompt và session mode.</desc>
+            <defs>
+              <marker id="arrow-h1" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+              <marker id="arrow-soft-h1" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#7a8399"/></marker>
+            </defs>
+      
+            
+      
+            <!-- connectors -->
+            <path d="M488,104 V136 Q488,144 480,144 H228 Q220,144 220,152 V176" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h1)"/>
+            <path d="M512,104 V136 Q512,144 520,144 H652 Q660,144 660,152 V176" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h1)"/>
+      
+            <line x1="320" y1="208" x2="552" y2="208" stroke="#7a8399" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-soft-h1)"/>
+            <rect x="368" y="182" width="136" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="436" y="191" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">OBSERVES · NO AUTHORITY</text>
+      
+            <line x1="660" y1="240" x2="660" y2="284" stroke="#4f5d75" stroke-width="1"/>
+            <line x1="194" y1="284" x2="806" y2="284" stroke="#4f5d75" stroke-width="1"/>
+            <line x1="194" y1="284" x2="194" y2="320" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h1)"/>
+            <line x1="398" y1="284" x2="398" y2="320" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h1)"/>
+            <line x1="602" y1="284" x2="602" y2="320" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h1)"/>
+            <line x1="806" y1="284" x2="806" y2="320" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h1)"/>
+      
+            <!-- Human -->
+            <rect x="420" y="48" width="160" height="56" rx="6" fill="#f5f5f5"/>
+            <rect x="420" y="48" width="160" height="56" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+            <text x="500" y="74" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Human · chủ sở hữu</text>
+            <text x="500" y="92" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MERGE · DEPLOY · POLICY</text>
+      
+            <!-- Supervisor -->
+            <rect x="120" y="176" width="200" height="64" rx="6" fill="#f5f5f5"/>
+            <rect x="120" y="176" width="200" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+            <text x="220" y="202" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Supervisor</text>
+            <text x="220" y="220" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">OBSERVE-ONLY · MUTATES:FALSE</text>
+            <text x="220" y="234" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ĐỀ XUẤT, KHÔNG QUYẾT</text>
+      
+            <!-- Lead (focal) -->
+            <rect x="560" y="176" width="200" height="64" rx="6" fill="#f5f5f5"/>
+            <rect x="560" y="176" width="200" height="64" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+            <text x="660" y="202" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Lead</text>
+            <text x="660" y="220" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SEAT DUY NHẤT ĐIỀU PHỐI</text>
+            <text x="660" y="234" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">NGHIỆM THU, KHÔNG TỰ VIẾT</text>
+      
+            <!-- Peers -->
+            <rect x="104" y="320" width="180" height="72" rx="6" fill="#f5f5f5"/>
+            <rect x="104" y="320" width="180" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="194" y="348" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Architect-Peer</text>
+            <text x="194" y="366" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">READ-ONLY</text>
+            <text x="194" y="382" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">PHÁN GỐC · ĐƯỢC PHẢN BIỆN LEAD</text>
+      
+            <rect x="308" y="320" width="180" height="72" rx="6" fill="#f5f5f5"/>
+            <rect x="308" y="320" width="180" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="398" y="348" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Engineer-Peer</text>
+            <text x="398" y="366" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">WRITE · MỘT SCOPE</text>
+            <text x="398" y="382" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">FIX KÈM KILLING TEST</text>
+      
+            <rect x="512" y="320" width="180" height="72" rx="6" fill="#f5f5f5"/>
+            <rect x="512" y="320" width="180" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="602" y="348" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Reviewer-Peer</text>
+            <text x="602" y="366" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">READ-ONLY</text>
+            <text x="602" y="382" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CHẶN NGHIỆM THU</text>
+      
+            <rect x="716" y="320" width="180" height="72" rx="6" fill="#f5f5f5"/>
+            <rect x="716" y="320" width="180" height="72" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="1" stroke-dasharray="4,3"/>
+            <text x="806" y="348" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Scout fleet · omp</text>
+            <text x="806" y="366" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">PROMPT + MODE ONLY</text>
+            <text x="806" y="382" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">HOOK KHÔNG VỚI TỚI</text>
+      
+            <!-- footer callouts -->
+            <text x="500" y="436" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="middle">Quyền đọc từ V3 brief của lượt hiện tại — brief lượt trước không cấp gì cho lượt này.</text>
+            <text x="500" y="464" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="middle">Seat nào hook không với tới thì tầng phát hiện gánh — chưa bao giờ là “không ai canh”.</text>
+      
+            <!-- legend -->
+            <line x1="80" y1="520" x2="920" y2="520" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+            <text x="80" y="540" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+            <rect x="176" y="532" width="14" height="10" rx="2" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+            <text x="198" y="540" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">FRONT DOOR</text>
+            <rect x="336" y="532" width="14" height="10" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="358" y="540" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">HOOK CƯỠNG CHẾ</text>
+            <rect x="520" y="532" width="14" height="10" rx="2" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="1" stroke-dasharray="4,3"/>
+            <text x="542" y="540" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">CHỈ PROMPT — CÓ LỖ HỔNG</text>
+            <text x="920" y="540" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">3 VAI · 4 LOẠI PEER</text>
+          </svg>
+    <figcaption><b>Hình 1.</b> Quyền không dính vào vai một lần rồi thôi — nó đọc từ V3 brief của lượt hiện tại. Đường nét đứt bên phải là chỗ hook không với tới: fleet omp chỉ ràng bằng prompt và session mode.</figcaption>
+  </figure>
+
+  <h2><span class="num">§ 3</span>Một ngày vận hành</h2>
+  <p>
+    Đường đi của một thay đổi, từ cổng sáng tới lúc merge. Điểm khác biệt so với “agent làm rồi
+    người review”: <strong>người sửa không bao giờ là người nghiệm thu</strong>, và khi review bắt
+    lỗi thì correction quay về <em>đúng writer gốc</em> — không mở seat mới, vì seat mới không có
+    context và sẽ vá lại từ đầu.
+  </p>
+  <figure>
+    <svg viewBox="0 0 1200 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="day-title day-desc">
+            <title id="day-title">Vòng làm việc một ngày của paseo-claude-team</title>
+            <desc id="day-desc">Cổng sáng chạy tự động và chặn nếu topology sai, Lead phát V3 brief cho một writer trên một scope, Engineer nộp kèm killing test, một Reviewer độc lập soát bằng mutation probe, Lead nghiệm thu hoặc trả correction về đúng writer gốc, rồi CI và Human merge.</desc>
+            <defs>
+              <marker id="arrow-h2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+              <marker id="arrow-accent-h2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+            </defs>
+      
+            
+      
+            <!-- lane bands + dividers -->
+            <line x1="148" y1="112" x2="1160" y2="112" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+            <line x1="148" y1="208" x2="1160" y2="208" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+            <line x1="148" y1="304" x2="1160" y2="304" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+            <line x1="148" y1="400" x2="1160" y2="400" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+            <line x1="148" y1="496" x2="1160" y2="496" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      
+            <text x="140" y="164" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.14em">TỰ ĐỘNG</text>
+            <text x="140" y="260" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.14em">LEAD</text>
+            <text x="140" y="356" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.14em">PEERS</text>
+            <text x="140" y="452" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.14em">HUMAN</text>
+      
+            <!-- forward connectors -->
+            <path d="M296,160 H304 Q312,160 312,168 V248 Q312,256 320,256" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h2)"/>
+            <path d="M468,256 H476 Q484,256 484,264 V344 Q484,352 492,352" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h2)"/>
+            <line x1="640" y1="352" x2="664" y2="352" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h2)"/>
+            <path d="M812,352 H820 Q828,352 828,344 V264 Q828,256 836,256" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h2)"/>
+            <path d="M984,256 H992 Q1000,256 1000,248 V168 Q1000,160 1008,160" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h2)"/>
+            <line x1="1082" y1="188" x2="1082" y2="420" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h2)"/>
+      
+            <!-- correction back-edge (the load-bearing handoff) -->
+            <path d="M910,284 V444 Q910,452 902,452 H574 Q566,452 566,444 V380" fill="none" stroke="#eb6c36" stroke-width="1" marker-end="url(#arrow-accent-h2)"/>
+            <rect x="628" y="426" width="184" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="720" y="435" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CORRECTION → ĐÚNG WRITER GỐC</text>
+      
+            <!-- steps -->
+            <rect x="148" y="132" width="148" height="56" rx="6" fill="#f5f5f5"/>
+            <rect x="148" y="132" width="148" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="222" y="156" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Cổng sáng</text>
+            <text x="222" y="174" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">--ASSERT · EXIT 3 = DỪNG</text>
+      
+            <rect x="320" y="228" width="148" height="56" rx="6" fill="#f5f5f5"/>
+            <rect x="320" y="228" width="148" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="394" y="252" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Phát V3 brief</text>
+            <text x="394" y="270" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">1 WRITER · 1 SCOPE</text>
+      
+            <rect x="492" y="324" width="148" height="56" rx="6" fill="#f5f5f5"/>
+            <rect x="492" y="324" width="148" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="566" y="348" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Engineer</text>
+            <text x="566" y="366" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">FIX + KILLING TEST</text>
+      
+            <rect x="664" y="324" width="148" height="56" rx="6" fill="#f5f5f5"/>
+            <rect x="664" y="324" width="148" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="738" y="348" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Reviewer độc lập</text>
+            <text x="738" y="366" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MUTATION PROBE</text>
+      
+            <rect x="836" y="228" width="148" height="56" rx="6" fill="#f5f5f5"/>
+            <rect x="836" y="228" width="148" height="56" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+            <text x="910" y="252" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Nghiệm thu / trả về</text>
+            <text x="910" y="270" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">WRITER ≠ ACCEPTOR</text>
+      
+            <rect x="1008" y="132" width="148" height="56" rx="6" fill="#f5f5f5"/>
+            <rect x="1008" y="132" width="148" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="1082" y="156" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">CI + digest EOD</text>
+            <text x="1082" y="174" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">4 CỔNG · EXIT CODE</text>
+      
+            <rect x="1008" y="420" width="148" height="56" rx="6" fill="#f5f5f5"/>
+            <rect x="1008" y="420" width="148" height="56" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+            <text x="1082" y="444" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Merge + deploy</text>
+            <text x="1082" y="462" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CHỈ HUMAN</text>
+      
+            <!-- async lane note -->
+            <text x="148" y="540" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">Song song, không chặn merge: ultra-review sweep theo module — coverage fleet + semantic pair 2 provider + probe.</text>
+            <text x="148" y="566" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">Findings đi qua cổng hội tụ rồi mới được phép sửa; không cái nào chen vào đường merge của hôm nay.</text>
+      
+            <!-- legend -->
+            <line x1="148" y1="612" x2="1160" y2="612" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+            <text x="148" y="632" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+            <line x1="244" y1="628" x2="276" y2="628" stroke="#4f5d75" stroke-width="1"/>
+            <text x="288" y="632" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ĐƯỜNG TỚI</text>
+            <line x1="420" y1="628" x2="452" y2="628" stroke="#eb6c36" stroke-width="1"/>
+            <text x="464" y="632" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">VÒNG SỬA — HANDOFF CHỊU LỰC</text>
+            <text x="1160" y="632" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">4 LANE · 7 BƯỚC</text>
+          </svg>
+    <figcaption><b>Hình 2.</b> Bốn lane, bảy bước. Mũi tên coral là handoff chịu lực nhất của cả quy trình: vòng correction. Lane review rộng (ultra-review sweep) chạy song song và không bao giờ chặn merge.</figcaption>
+  </figure>
+
+  <h3>Ba vòng lặp chạy trên cùng bộ khung</h3>
+  <div class="cards">
+    <div class="card">
+      <p class="eyebrow">Nhịp ngày</p>
+      <div class="card-head"><span class="dot ink"></span><h4>Vòng giao–làm–nghiệm thu</h4></div>
+      <p>Cổng sáng → brief → engineer → reviewer → nghiệm thu → CI → merge. Đây là vòng ở Hình 2.</p>
+    </div>
+    <div class="card focal">
+      <p class="eyebrow">Khi đụng gốc</p>
+      <div class="card-head"><span class="dot coral"></span><h4>Vòng governance L3</h4></div>
+      <p>≥2 finding chung một cơ chế ⇒ architect phán gốc <em>trước</em> khi sửa, được quyền phản biện chính Lead. Hôm nay chạy 3 lần, cả 3 đều đổi kế hoạch của Lead.</p>
+    </div>
+    <div class="card">
+      <p class="eyebrow">Tự cải thiện</p>
+      <div class="card-head"><span class="dot muted"></span><h4>Vòng bench</h4></div>
+      <p>Harness tự soi mình bằng công cụ ngoài, ra findings → proposal qua 5 cổng → <strong>human merge</strong>. Không tự áp bao giờ.</p>
+    </div>
+  </div>
+
+  <h2><span class="num">§ 4</span>Cái gì máy giữ, cái gì chỉ là luật</h2>
+  <p>
+    Đây là phần quyết định độ tin của cả bộ. Một “quy trình” mà toàn bộ nằm trong prompt thì
+    chỉ đúng khi model ngoan. Bảng dưới tách rõ: tầng nào có code chặn, tầng nào chỉ là chữ.
+  </p>
+  <figure>
+    <svg viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="stack-title stack-desc">
+            <title id="stack-title">Sáu tầng cưỡng chế của paseo-claude-team</title>
+            <desc id="stack-desc">Sáu bề mặt cưỡng chế xếp theo thời điểm nổ, từ brief lúc giao việc tới sổ tay tích luỹ sau cùng; tầng hook lúc ghi là tầng chịu lực nhưng chỉ phủ seat claude, phần còn lại rơi xuống tầng phát hiện lúc chạy.</desc>
+            <defs>
+              <marker id="arrow-dir-h3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#7a8399"/></marker>
+            </defs>
+      
+            
+      
+            <!-- direction indicator, left margin outside the stack -->
+            <line x1="112" y1="112" x2="112" y2="480" stroke="#7a8399" stroke-width="1" marker-end="url(#arrow-dir-h3)"/>
+            <text x="96" y="300" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em" transform="rotate(-90 96 300)">THỜI ĐIỂM NỔ</text>
+      
+            <!-- L1 authoring -->
+            <rect x="160" y="104" width="800" height="64" fill="#f5f5f5"/>
+            <rect x="160" y="104" width="800" height="64" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+            <text x="180" y="132" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">L1</text>
+            <text x="180" y="152" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">GIAO VIỆC</text>
+            <text x="320" y="142" fill="#2d3142" font-size="14" font-weight="600" font-family="'Geist', sans-serif">V3 brief · skill doctrine · outcome-level</text>
+            <text x="940" y="130" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">HUMAN + MODEL · LUẬT</text>
+            <text x="940" y="150" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">BRIEF HỎNG → PEER TỪ CHỐI LÀM</text>
+      
+            <!-- L2 write-time hook — FOCAL -->
+            <rect x="160" y="168" width="800" height="64" fill="#f5f5f5"/>
+            <rect x="160" y="168" width="800" height="64" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1.2"/>
+            <text x="180" y="196" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">L2</text>
+            <text x="180" y="216" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">LÚC GHI</text>
+            <text x="320" y="206" fill="#2d3142" font-size="14" font-weight="600" font-family="'Geist', sans-serif">PreToolUse hook · 7 cổng fail-closed</text>
+            <text x="940" y="194" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">CODE · GIỮ CẢ DƯỚI BYPASS</text>
+            <text x="940" y="214" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">PHỦ: CHỈ SEAT CLAUDE-* ← LỖ HỔNG</text>
+      
+            <!-- L3 test -->
+            <rect x="160" y="232" width="800" height="64" fill="#f5f5f5"/>
+            <rect x="160" y="232" width="800" height="64" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+            <text x="180" y="260" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">L3</text>
+            <text x="180" y="280" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">LÚC TEST</text>
+            <text x="320" y="270" fill="#2d3142" font-size="14" font-weight="600" font-family="'Geist', sans-serif">22 file test · mỗi fix kèm killing test</text>
+            <text x="940" y="258" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">CODE · 41/41 XANH</text>
+            <text x="940" y="278" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">MUTATE → PHẢI ĐỎ, MỚI TÍNH</text>
+      
+            <!-- L4 pre-merge -->
+            <rect x="160" y="296" width="800" height="64" fill="#f5f5f5"/>
+            <rect x="160" y="296" width="800" height="64" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+            <text x="180" y="324" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">L4</text>
+            <text x="180" y="344" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">TRƯỚC MERGE</text>
+            <text x="320" y="334" fill="#2d3142" font-size="14" font-weight="600" font-family="'Geist', sans-serif">CI: suite · digest drift · report gate</text>
+            <text x="940" y="322" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">PLATFORM · CHẶN PR</text>
+            <text x="940" y="342" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">ĐỔI CI.YML CŨNG LÀM ĐỎ DIGEST</text>
+      
+            <!-- L5 runtime detection -->
+            <rect x="160" y="360" width="800" height="64" fill="#f5f5f5"/>
+            <rect x="160" y="360" width="800" height="64" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+            <text x="180" y="388" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">L5</text>
+            <text x="180" y="408" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">LÚC CHẠY</text>
+            <text x="320" y="398" fill="#2d3142" font-size="14" font-weight="600" font-family="'Geist', sans-serif">Assert A1–A7 · reconciler · exit 3</text>
+            <text x="940" y="386" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">CODE · PHÁT HIỆN, KHÔNG NGĂN</text>
+            <text x="940" y="406" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">GÁNH PHẦN L2 KHÔNG VỚI TỚI</text>
+      
+            <!-- L6 memory -->
+            <rect x="160" y="424" width="800" height="64" fill="#f5f5f5"/>
+            <rect x="160" y="424" width="800" height="64" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+            <text x="180" y="452" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">L6</text>
+            <text x="180" y="472" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">SAU CÙNG</text>
+            <text x="320" y="462" fill="#2d3142" font-size="14" font-weight="600" font-family="'Geist', sans-serif">Catalog AP-01…04 · watchlist W01–W18</text>
+            <text x="940" y="450" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">HUMAN · LUẬT + VẾT EPISODE</text>
+            <text x="940" y="470" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">≥2 EPISODE MỚI LÊN MECHANISM</text>
+      
+            <!-- aside -->
+            <text x="160" y="528" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">Chỉ 4/6 tầng là máy giữ. Hai tầng còn lại được ghi rõ là luật — không đội lốt cơ chế.</text>
+      
+            <!-- legend -->
+            <line x1="160" y1="560" x2="960" y2="560" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+            <text x="160" y="580" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+            <rect x="256" y="572" width="14" height="10" rx="2" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+            <text x="278" y="580" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">TẦNG CHỊU LỰC</text>
+            <text x="440" y="580" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">CỘT PHẢI: AI CƯỠNG CHẾ · ĐỘ PHỦ · LỖ HỔNG</text>
+            <text x="960" y="580" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">4 CƠ CHẾ · 2 LUẬT</text>
+          </svg>
+    <figcaption><b>Hình 3.</b> Cột phải nói ai cưỡng chế, độ phủ tới đâu, và lỗ hổng ở chỗ nào. Tầng L2 chịu lực nhất nhưng chỉ phủ seat claude — phần rơi ra được L5 (phát hiện lúc chạy) gánh, và điều đó được viết ra chứ không giấu.</figcaption>
+  </figure>
+
+  <h2><span class="num">§ 5</span>Luật quyết định việc sửa</h2>
+  <p>
+    Vấn đề thật của review nhiều agent không phải “tìm ít bug” mà là <strong>sửa vô tội vạ</strong>:
+    một scout kể chuyện nghe hợp lý, Lead sốt sắng sửa, kiến trúc nát dần. Cổng hội tụ chặn đúng
+    chỗ đó — và nó là <em>code</em>, có hai điểm gọi tự động, không phải lời khuyên trong tài liệu.
+  </p>
+  <figure>
+    <svg viewBox="0 0 1000 680" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="gate-title gate-desc">
+            <title id="gate-title">Cổng hội tụ quyết định finding nào được phép sửa</title>
+            <desc id="gate-desc">Mỗi phát hiện từ vòng review phải tái lập được trên bytes hiện tại, phải có đủ đường hội tụ độc lập hoặc là lỗi phá hợp đồng, và phải nêu rõ đánh đổi của việc sửa ngay; thiếu bất kỳ điều kiện nào thì chỉ được ghi nhận chứ không được sửa.</desc>
+            <defs>
+              <marker id="arrow-h4" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+              <marker id="arrow-accent-h4" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+            </defs>
+      
+            
+      
+            <!-- yes-path connectors -->
+            <line x1="400" y1="104" x2="400" y2="128" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h4)"/>
+            <line x1="400" y1="224" x2="400" y2="260" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h4)"/>
+            <line x1="400" y1="356" x2="400" y2="392" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h4)"/>
+            <line x1="400" y1="488" x2="400" y2="528" stroke="#eb6c36" stroke-width="1" marker-end="url(#arrow-accent-h4)"/>
+      
+            <!-- no-path connectors to the record-only outcome -->
+            <path d="M540,180 H612 Q620,180 620,188 V280 Q620,288 628,288 H672" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h4)"/>
+            <line x1="540" y1="312" x2="672" y2="312" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h4)"/>
+            <path d="M540,444 H612 Q620,444 620,436 V336 Q620,328 628,328 H672" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow-h4)"/>
+      
+            <!-- branch labels -->
+            <rect x="548" y="158" width="24" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="560" y="167" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">NO</text>
+            <rect x="548" y="290" width="24" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="560" y="299" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">NO</text>
+            <rect x="548" y="422" width="24" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="560" y="431" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">NO</text>
+            <rect x="412" y="232" width="28" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="426" y="241" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start" letter-spacing="0.06em">YES</text>
+            <rect x="412" y="364" width="28" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="426" y="373" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start" letter-spacing="0.06em">YES</text>
+            <rect x="412" y="496" width="28" height="12" rx="2" fill="#f5f5f5"/>
+            <text x="426" y="505" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start" letter-spacing="0.06em">YES</text>
+      
+            <!-- start -->
+            <rect x="280" y="48" width="240" height="56" rx="20" fill="#f5f5f5"/>
+            <rect x="280" y="48" width="240" height="56" rx="20" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+            <text x="400" y="74" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Finding từ vòng review</text>
+            <text x="400" y="92" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">GIỮ MỌI ỨNG VIÊN · KHÔNG LỌC SỚM</text>
+      
+            <!-- decision A -->
+            <polygon points="400,128 540,180 400,232 260,180" fill="#f5f5f5"/>
+            <polygon points="400,128 540,180 400,232 260,180" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="400" y="176" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Tái lập được?</text>
+            <text x="400" y="194" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">TRÊN BYTES HIỆN TẠI</text>
+      
+            <!-- decision B -->
+            <polygon points="400,260 540,312 400,364 260,312" fill="#f5f5f5"/>
+            <polygon points="400,260 540,312 400,364 260,312" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="400" y="308" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Hội tụ ≥3 đường?</text>
+            <text x="400" y="326" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">HOẶC PHÁ HỢP ĐỒNG</text>
+      
+            <!-- decision C -->
+            <polygon points="400,392 540,444 400,496 260,444" fill="#f5f5f5"/>
+            <polygon points="400,392 540,444 400,496 260,444" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+            <text x="400" y="440" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Đã nêu đánh đổi?</text>
+            <text x="400" y="458" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">“KHÔNG CÓ” CŨNG PHẢI VIẾT RA</text>
+      
+            <!-- outcome: fix-eligible -->
+            <rect x="280" y="528" width="240" height="56" rx="20" fill="#f5f5f5"/>
+            <rect x="280" y="528" width="240" height="56" rx="20" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+            <text x="400" y="554" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Được phép sửa</text>
+            <text x="400" y="572" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">FIX-ELIGIBLE · KÈM KILLING TEST</text>
+      
+            <!-- outcome: record-only -->
+            <rect x="680" y="272" width="240" height="56" rx="20" fill="#f5f5f5"/>
+            <rect x="680" y="272" width="240" height="56" rx="20" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+            <text x="800" y="298" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Chỉ ghi nhận</text>
+            <text x="800" y="316" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">KHÔNG PHẢI BỊ BÁC — CHỜ VÒNG SAU</text>
+      
+            <!-- asides -->
+            <text x="500" y="620" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="middle">Sửa là đã commit, khó lùi. Ghi nhận thì lúc nào sửa cũng được — nên nghiêng về ghi nhận.</text>
+            <text x="500" y="644" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="middle">Và nếu ≥2 finding chung một cơ chế: dừng, hỏi architect về gốc trước khi sửa bất kỳ cái nào.</text>
+      
+            <!-- legend -->
+            <line x1="80" y1="664" x2="920" y2="664" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+            <text x="80" y="676" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+            <line x1="176" y1="672" x2="208" y2="672" stroke="#eb6c36" stroke-width="1"/>
+            <text x="220" y="676" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ĐƯỜNG DUY NHẤT ĐƯỢC SỬA</text>
+            <text x="920" y="676" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">3 CỬA · 2 KẾT CỤC</text>
+          </svg>
+    <figcaption><b>Hình 4.</b> Ba cửa: tái lập được, đủ hội tụ (hoặc phá hợp đồng), và đã nêu đánh đổi. Thiếu một cửa thì chỉ được ghi nhận. Ghi nhận không phải bị bác — nó chờ vòng sau.</figcaption>
+  </figure>
+
+  <h2><span class="num">§ 6</span>Bằng chứng đo được</h2>
+  <p>Không có con số nào ở đây là ước lượng. Tất cả đo trên daemon thật hoặc suite thật trong ngày.</p>
+  <table>
+    <thead><tr><th style="width:22rem">Hạng mục</th><th style="width:11rem">Trước</th><th style="width:11rem">Sau</th><th>Ý nghĩa</th></tr></thead>
+    <tbody>
+      <tr class="focal">
+        <td>Cổng topology sáng, chạy live</td>
+        <td class="num-cell">4 vi phạm</td>
+        <td class="num-cell delta">0 vi phạm</td>
+        <td>4 cái kia là <em>oan</em> — agent đã kết thúc bị đếm như writer. Cổng kêu oan là cổng sẽ bị lờ.</td>
+      </tr>
+      <tr>
+        <td>Cảnh báo A3 trên fleet thật</td>
+        <td class="num-cell">8 dòng / agent</td>
+        <td class="num-cell delta">1 dòng / scope</td>
+        <td>Cùng thông tin, hết ngập. Điều kiện để người thật còn đọc output mỗi sáng.</td>
+      </tr>
+      <tr>
+        <td>Digest đọc report cũ (pre-gate)</td>
+        <td class="num-cell">25 mục quyết định</td>
+        <td class="num-cell delta">1 anomaly</td>
+        <td>Report cũ được <em>khai</em> là ngoài chuẩn, không suy đoán từ việc thiếu trường.</td>
+      </tr>
+      <tr>
+        <td>Suite test</td>
+        <td class="num-cell">19 file</td>
+        <td class="num-cell delta">22 file · 41/41</td>
+        <td>Mỗi fix trong ngày land kèm test giết của chính nó.</td>
+      </tr>
+      <tr>
+        <td>Vòng review lớn</td>
+        <td class="num-cell">47 ứng viên thô</td>
+        <td class="num-cell delta">16 finding gốc</td>
+        <td>8 seat, 2 provider. Hợp nhất theo nguyên nhân gốc, không theo triệu chứng.</td>
+      </tr>
+      <tr>
+        <td>Ranh giới control plane của omp</td>
+        <td class="num-cell">giả thuyết</td>
+        <td class="num-cell delta">35/73 tool</td>
+        <td>Đo bằng probe thật: seat omp thấy toàn bộ control plane dưới tên trần. Nay là fact có artifact.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Ba lần chu trình governance chạy thật trong ngày</h3>
+  <p>Mỗi lần đều có architect phản biện lại chính kế hoạch của Lead — đó là bằng chứng vòng lặp không phải nghi thức:</p>
+  <ul>
+    <li><strong>Canonicalization</strong> — architect phán MIXED, tách 1 lỗi độc lập khỏi 1 gốc chung, và tìm 3 điểm lỗi <em>không scout nào nêu</em>.</li>
+    <li><strong>Pack-ship fix</strong> — reviewer bắn 12 mutation, 1 sống sót: đúng cổng CI mà Lead vừa viết. Lỗi AP-02 tái hiện ngay trong chu trình sửa AP-02.</li>
+    <li><strong>F015 taxonomy</strong> — architect bác luôn cách Lead đặt vấn đề (“không phải trôi từ vựng, mà là thiếu field”), rồi engineer phản biện ngược lại reviewer bằng số đo, và reviewer <em>chấp nhận</em> sau khi tự tìm ra cơ chế mạnh hơn rồi tự bác nó.</li>
+  </ul>
+  <p class="aside">Vòng lặp chỉ có giá trị khi cạnh ngược làm đổi được quyết định của cấp trên. Cả ba lần đều đổi.</p>
+
+  <h2><span class="num">§ 7</span>Trạng thái trưởng thành</h2>
+  <p>
+    Từ vựng: <strong>qualified</strong> = đã chứng minh end-to-end trên dữ liệu thật ·
+    <strong>candidate+</strong> = có positive control qua producer thật, chưa chạy đa ngày/đa máy ·
+    <strong>open</strong> = còn thiếu.
+  </p>
+  <table>
+    <thead><tr><th style="width:24rem">Năng lực</th><th style="width:10rem">Trạng thái</th><th>Bằng chứng</th></tr></thead>
+    <tbody>
+      <tr><td>Audit — bắt lỗi trong chính mình</td><td class="tag q">Qualified</td><td>Bắt được reconciler no-op; adversarial verify phá 3/7 fix của chính Lead</td></tr>
+      <tr><td>Lifecycle reclamation (reconciler)</td><td class="tag q">Qualified</td><td>Test qua git+lsof thật, và một lần E2E zero-injection trên daemon thật</td></tr>
+      <tr><td>Cổng hội tụ + trade-off</td><td class="tag q">Qualified</td><td>Hai điểm gọi tự động; exit wiring có killing test riêng</td></tr>
+      <tr><td>Assert topology A1–A7</td><td class="tag c">Candidate+</td><td>Exit 3 chứng minh qua CLI thật; A1 còn vacuum tới khi taxonomy phủ đủ — <em>ghi rõ trong docs</em></td></tr>
+      <tr><td>Policy digest / manifest</td><td class="tag c">Candidate+</td><td>Gate nhạy 1 byte; đường symlink fail-open đã vá + test</td></tr>
+      <tr><td>Vòng tự cải thiện</td><td class="tag c">Candidate+</td><td>1 chu trình chạy trọn, 6 finding, 3 proposal, human merge</td></tr>
+      <tr><td>Wake tier (đánh thức theo signal)</td><td class="tag o">Open</td><td>Watchdog mới ở mức <em>nghi ngờ</em>; đây là mảnh lớn nhất còn thiếu</td></tr>
+      <tr><td>Fleet nhiều PR/ngày</td><td class="tag o">Open</td><td>Thiết kế có, chưa đo throughput thật</td></tr>
+    </tbody>
+  </table>
+
+  <h2><span class="num">§ 8</span>Rủi ro và nợ — khai thẳng</h2>
+  <ul>
+    <li><strong>Seat non-claude không bị hook chặn.</strong> Đo được: agent omp nhìn thấy 35 tool control plane. Hiện phòng bằng <em>phát hiện</em> (assert A4) chứ không phải <em>ngăn</em>. Ngăn thật cần ràng buộc ở tầng daemon.</li>
+    <li><strong>A1 chưa có răng trên fleet thật</strong> cho tới khi nhãn vai phủ hết. Đã ghi trong code, docs và catalog kèm cảnh báo đừng “dọn” đoạn suppression đó.</li>
+    <li><strong>Hai script còn lệch chuẩn:</strong> watchdog chưa có tổng hợp, model-routing thoát bằng exit 64 + usage text thay vì envelope.</li>
+    <li><strong>Deployed plane mới versioned một nửa</strong> — cần một lần cài thật trên máy sạch để chốt.</li>
+    <li><strong>Chưa chạy đa máy / đa ngày</strong> — mọi con số ở §6 là một host, một ngày.</li>
+  </ul>
+
+  <h2><span class="num">§ 9</span>Chi phí đem sang project khác</h2>
+  <p>
+    Bộ này thiết kế để scaffold cho repo khác, chia ba tầng adopt — dùng tầng nào trả giá tầng đó:
+  </p>
+  <table>
+    <thead><tr><th style="width:14rem">Tầng</th><th style="width:16rem">Được gì</th><th>Phải trả gì</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Read-only</strong></td><td>Assert topology, reconciler, digest EOD</td><td>Gần như không — không đụng vào repo được govern</td></tr>
+      <tr><td><strong>Review lane</strong></td><td>Ultra-review fleet, cổng hội tụ, OCR bind theo SHA</td><td>Thêm 1 dòng CI + quy ước report có marker</td></tr>
+      <tr><td><strong>Writer tier</strong></td><td>Hook fail-closed, V3 brief, writer≠acceptor</td><td>Cài hook + provider role, và chấp nhận Lead không tự viết</td></tr>
+    </tbody>
+  </table>
+
+  <h2><span class="num">§ 10</span>Cần quyết</h2>
+  <div class="decision">
+    <h4>1 · Cho Lead thường trực chạy trên provider <code>claude-lead</code></h4>
+    <p>Một dòng config. Cổng gắn nhãn lúc tạo agent bind theo <em>người tạo</em>, nên đổi cái này chuyển độ phủ từ 0% lên mọi agent con mà Lead sinh ra, kể cả agent omp. Rẻ nhất trong danh sách, và mở đường cho A1 có răng.</p>
+  </div>
+  <div class="decision">
+    <h4>2 · Ưu tiên tiếp theo: wake tier hay đo throughput fleet?</h4>
+    <p>Wake tier đóng mảnh quan sát cuối (agent treo hiện chỉ bị <em>nghi ngờ</em>, không ai đánh thức). Đo fleet trả lời được câu “bao nhiêu PR/ngày là thật”. Không làm song song được nếu muốn giữ chất lượng vòng review.</p>
+  </div>
+  <div class="decision">
+    <h4>3 · Có ngăn thật seat non-claude không, hay chấp nhận chỉ phát hiện?</h4>
+    <p>Ngăn thật cần ràng buộc tầng daemon — hoặc dùng bản fork có sẵn tính năng đó, tức đổi luôn chuỗi tin cậy nguồn. Đây là đánh đổi bảo mật, thuộc quyền anh, tôi không tự quyết.</p>
+  </div>
+
+  <footer>
+    <span>paseo-claude-team · docs/harness-report.html</span>
+    <span>Chi tiết: docs/daily-ops.md · docs/anti-patterns.md · docs/ultrareview/</span>
+    <span>Diagram: diagram-design skill</span>
+  </footer>
+
+</div>
+</body>
+</html>
